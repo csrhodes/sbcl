@@ -3428,7 +3428,7 @@ initially undefined function references:~2%")
                          layout
                          sb!c::compiled-debug-info
                          sb!c::compiled-debug-fun
-                         sb!xc:package))
+                         package))
           (out-to
            (string-downcase (string class))
            (write-structure-object

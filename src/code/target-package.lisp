@@ -326,6 +326,9 @@ error if any of PACKAGES is not a valid package designator."
 
 ;;;; miscellaneous PACKAGE operations
 
+(def!method make-load-form ((package package) &optional environment)
+  (values `(find-undeleted-package-or-lose ',(package-name package)) nil))
+
 (def!method print-object ((package package) stream)
   (let ((name (package-%name package)))
     (if name
