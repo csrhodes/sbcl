@@ -1302,6 +1302,15 @@
            (eq (class-of class) *the-class-funcallable-standard-class*))
       (and (eq (class-of superclass) *the-class-funcallable-standard-class*)
            (eq (class-of class) *the-class-standard-class*))))
+
+;;; FIXME: this should be CLASS-EQ STANDARD-CLASS:
+;;; FUNCALLABLE-STANDARD-CLASS is a definite no-no.  (Also we should
+;;; check for exactly one structure-class parent, but we can't with
+;;; this interface...)
+(defmethod validate-superclass ((class standard-class) (superclass structure-class))
+  (let* ((wrapper (class-wrapper superclass))
+         (dd (layout-info wrapper)))
+    (eq (sb-kernel::dd-subclassable dd) t)))
 
 ;;; What this does depends on which of the four possible values of
 ;;; LAYOUT-INVALID the PCL wrapper has; the simplest case is when it

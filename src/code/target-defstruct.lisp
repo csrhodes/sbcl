@@ -536,12 +536,13 @@
                        :expected-type (layout-classoid obj-layout)
                        :datum obj))
                (t
-                (let ((depthoid (layout-depthoid layout)))
+                (let ((depthoid (layout-depthoid layout))
+                      (layout-inherits (layout-inherits obj-layout)))
                   (/noshow0 "DEPTHOID case, DEPTHOID,LAYOUT-INHERITS=..")
                   (/nohexstr depthoid)
                   (/nohexstr layout-inherits)
-                  (and (> (layout-depthoid obj-layout) depthoid)
-                       (eq (svref (layout-inherits obj-layout) depthoid)
+                  (and (> (length layout-inherits) depthoid)
+                       (eq (svref layout-inherits depthoid)
                            layout))))))))
 
 ;;;; checking structure types

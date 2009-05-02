@@ -431,12 +431,21 @@
 
 ;;; FIXME: AMOP says that allocate-instance imples finalize-inheritance
 ;;; if the class is not yet finalized, but we don't seem to be taking
-;;; care of this for non-standard-classes.x
+;;; care of this for non-standard-classes.
 (defmethod allocate-instance ((class standard-class) &rest initargs)
   (declare (ignore initargs))
   (unless (class-finalized-p class)
     (finalize-inheritance class))
-  (allocate-standard-instance (class-wrapper class)))
+  (let ((struct (find-if #'structure-class-p (class-precedence-list class))))
+    (cond
+      (struct
+       (let ((wrapper (class-wrapper class))
+             (result (funcall (class-defstruct-constructor struct))))
+         (setf (%instance-ref result 2) (get-instance-hash-code))
+         (setf (std-instance-wrapper result) wrapper)
+         (setf (std-instance-slots result) (make-array (wrapper-no-of-instance-slots wrapper) :initial-element +slot-unbound+))
+         result))
+      (t (allocate-standard-instance (class-wrapper class))))))
 
 (defmethod allocate-instance ((class structure-class) &rest initargs)
   (declare (ignore initargs))

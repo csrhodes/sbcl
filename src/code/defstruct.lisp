@@ -173,15 +173,17 @@
   (raw-length 0 :type index)
   ;; the value of the :PURE option, or :UNSPECIFIED. This is only
   ;; meaningful if DD-CLASS-P = T.
-  (pure :unspecified :type (member t nil :substructure :unspecified)))
+  (pure :unspecified :type (member t nil :substructure :unspecified))
+  ;; the value of the :PURE option, or :UNSPECIFIED. This is only
+  ;; meaningful if DD-CLASS-P = T.
+  (subclassable :unspecified :type (member t nil :unspecified)))
 (def!method print-object ((x defstruct-description) stream)
   (print-unreadable-object (x stream :type t)
     (prin1 (dd-name x) stream)))
 
 ;;; Does DD describe a structure with a class?
 (defun dd-class-p (dd)
-  (member (dd-type dd)
-          '(structure funcallable-structure)))
+  (member (dd-type dd) '(structure funcallable-structure)))
 
 ;;; a type name which can be used when declaring things which operate
 ;;; on structure instances
@@ -609,6 +611,9 @@
       (:pure
        (destructuring-bind (fun) args
          (setf (dd-pure dd) fun)))
+      (:subclassable
+       (destructuring-bind (arg) args
+         (setf (dd-subclassable dd) arg)))
       (t (error "unknown DEFSTRUCT option:~%  ~S" option)))))
 
 ;;; Given name and options, return a DD holding that info.
@@ -640,7 +645,9 @@
            ;; care of this. (Except that the :TYPE VECTOR and :TYPE
            ;; LIST cases, with their :NAMED and un-:NAMED flavors,
            ;; make that messy, alas.)
-           (incf (dd-length dd))))
+           (incf (dd-length dd))
+           (when (eql (dd-subclassable dd) t)
+             (incf (dd-length dd) 2))))
         (t
          ;; In case we are here, :TYPE is specified.
          (when (and predicate-named-p (not (dd-named dd)))
@@ -788,17 +795,17 @@
              nil)))
     (cond
       ((null rsd)
-        (setf (dsd-index dsd) (dd-length dd))
-        (incf (dd-length dd)))
+       (setf (dsd-index dsd) (dd-length dd))
+       (incf (dd-length dd)))
       (t
-        (let* ((words (raw-slot-data-n-words rsd))
-               (alignment (raw-slot-data-alignment rsd))
-               (off (rem (dd-raw-length dd) alignment)))
-          (unless (zerop off)
-            (incf (dd-raw-length dd) (- alignment off)))
-          (setf (dsd-raw-type dsd) (raw-slot-data-raw-type rsd))
-          (setf (dsd-index dsd) (dd-raw-length dd))
-          (incf (dd-raw-length dd) words)))))
+       (let* ((words (raw-slot-data-n-words rsd))
+              (alignment (raw-slot-data-alignment rsd))
+              (off (rem (dd-raw-length dd) alignment)))
+         (unless (zerop off)
+           (incf (dd-raw-length dd) (- alignment off)))
+         (setf (dsd-raw-type dsd) (raw-slot-data-raw-type rsd))
+         (setf (dsd-index dsd) (dd-raw-length dd))
+         (incf (dd-raw-length dd) words)))))
   (values))
 
 (defun typed-structure-info-or-lose (name)
@@ -846,6 +853,12 @@
                   (cons included-name mc))))
         (when (eq (dd-pure dd) :unspecified)
           (setf (dd-pure dd) (dd-pure included-structure)))
+        (ecase (dd-subclassable dd)
+          (:unspecified
+           (setf (dd-subclassable dd) (dd-subclassable included-structure)))
+          (t
+           (unless (eql (dd-subclassable included-structure) t)
+             (incf (dd-length dd) 2))))
         (setf (dd-raw-length dd) (dd-raw-length included-structure)))
 
       (setf (dd-inherited-accessor-alist dd)

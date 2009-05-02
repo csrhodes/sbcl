@@ -490,7 +490,8 @@
            ((and (typep class 'structure-classoid) layout)
             ;; structure type tests; hierarchical layout depths
             (let ((depthoid (layout-depthoid layout))
-                  (n-layout (gensym)))
+                  (n-layout (gensym))
+                  (n-inherits (gensym)))
               `(and (,pred object)
                     (let ((,n-layout (,get-layout object)))
                       ;; we used to check for invalid layouts here,
@@ -502,21 +503,22 @@
                       ;; type test.
                       (if (eq ,n-layout ',layout)
                           t
-                          (and (> (layout-depthoid ,n-layout)
-                                  ,depthoid)
-                               (locally (declare (optimize (safety 0)))
-                                 ;; Use DATA-VECTOR-REF directly,
-                                 ;; since that's what SVREF in a
-                                 ;; SAFETY 0 lexenv will eventually be
-                                 ;; transformed to. This can give a
-                                 ;; large compilation speedup, since
-                                 ;; %INSTANCE-TYPEPs are frequently
-                                 ;; created during GENERATE-TYPE-CHECKS,
-                                 ;; and the normal aref transformation path
-                                 ;; is pretty heavy.
-                                 (eq (data-vector-ref (layout-inherits ,n-layout)
-                                                      ,depthoid)
-                                     ',layout))))))))
+                          (let ((,n-inherits (layout-inherits ,n-layout)))
+                            (and (> (length ,n-inherits) ,depthoid)
+                                 (locally (declare (optimize (safety 0)))
+                                   ;; Use DATA-VECTOR-REF directly,
+                                   ;; since that's what SVREF in a
+                                   ;; SAFETY 0 lexenv will eventually
+                                   ;; be transformed to. This can give
+                                   ;; a large compilation speedup,
+                                   ;; since %INSTANCE-TYPEPs are
+                                   ;; frequently created during
+                                   ;; GENERATE-TYPE-CHECKS, and the
+                                   ;; normal aref transformation path
+                                   ;; is pretty heavy.
+                                   (eq (data-vector-ref (layout-inherits ,n-layout)
+                                                        ,depthoid)
+                                       ',layout)))))))))
            ((and layout (>= (layout-depthoid layout) 0))
             ;; hierarchical layout depths for other things (e.g.
             ;; CONDITION, STREAM)
