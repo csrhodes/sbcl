@@ -363,6 +363,8 @@
   (dimensions '* :type (or list (member *)))
   ;; Is this not a simple array type? (:MAYBE means that we don't know.)
   (complexp :maybe :type (member t nil :maybe))
+  ;; Is this a displaced array type (:MAYBE means that we don't know.)
+  (displacedp :maybe :type (member t nil :maybe))
   ;; the element type as originally specified
   (element-type (missing-arg) :type ctype)
   ;; the element type as it is specialized in this implementation

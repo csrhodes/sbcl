@@ -1437,11 +1437,27 @@
       (type= type1 type2)
       (values nil nil)))
 
-(!define-type-method (hairy :simple-intersection2 :complex-intersection2)
-                     (type1 type2)
-  (if (type= type1 type2)
-      type1
-      nil))
+(!define-type-method (hairy :simple-intersection2) (type1 type2)
+  (if (type= type1 type2) type1 nil))
+
+(defun maybe-displaced-array-refinement (type1)
+  (let ((complexp (array-type-complexp type1))
+        (displacedp (array-type-displacedp type1)))
+    (if (or (null complexp) (null displacedp))
+        *empty-type*
+        (make-array-type :dimensions (array-type-dimensions type1)
+                         :complexp t
+                         :displacedp t
+                         :element-type (array-type-element-type type1)
+                         :specialized-element-type (array-type-specialized-element-type type1)))))
+
+(!define-type-method (hairy :complex-intersection2) (type1 type2)
+  (let ((specifier (hairy-type-specifier type2)))
+    (when (and (consp specifier) (eq (car specifier) 'satisfies))
+      (cond
+        ((and (eq (cadr specifier) 'array-displacement)
+              (array-type-p type1))
+         (maybe-displaced-array-refinement type1))))))
 
 (!define-type-method (hairy :simple-union2)
                      (type1 type2)
@@ -1610,6 +1626,18 @@
              (eql neltype *wild-type*) (eql nseltype *wild-type*))
         (make-array-type :dimensions (array-type-dimensions type1)
                          :complexp t
+                         :displacedp :maybe
+                         :element-type (array-type-element-type type1)
+                         :specialized-element-type (array-type-specialized-element-type type1)))))
+
+(defun maybe-not-displaced-array-refinement (type1)
+  (let ((displacedp (array-type-displacedp type1))
+        (complexp (array-type-complexp type1)))
+    (if (eql displacedp t)
+        *empty-type*
+        (make-array-type :dimensions (array-type-dimensions type1)
+                         :complexp complexp
+                         :displacedp nil
                          :element-type (array-type-element-type type1)
                          :specialized-element-type (array-type-specialized-element-type type1)))))
 
@@ -1620,6 +1648,13 @@
      type1)
     ((and (array-type-p type1) (array-type-p (negation-type-type type2)))
      (maybe-complex-array-refinement type1 type2))
+    ((and (array-type-p type1)
+          (hairy-type-p (negation-type-type type2))
+          (let ((specifier (hairy-type-specifier (negation-type-type type2))))
+            (and (consp specifier)
+                 (eq (car specifier) 'satisfies)
+                 (eq (cadr specifier) 'array-displacement))))
+     (maybe-not-displaced-array-refinement type1))
     (t nil)))
 
 (!define-type-method (negation :simple-union2) (type1 type2)
@@ -2431,54 +2466,64 @@ used for a COMPLEX component.~:@>"
   ;; NIL) (ARRAY CHAR) ...) equivalent?" -- CSR, 2003-12-10
   (make-negation-type :type type))
 
+;;; displaced   complex
+;;;       nil       nil   simple-array
+;;;       nil    :maybe   and array (not (satisfies array-displacement))
+;;;       nil         t   and array (not simple-array) (not (satisfies array-displacement))
+;;;    :maybe    :maybe   array
+;;;    :maybe         t   and array (not simple-array)
+;;;         t         t   and array (satisfies array-displacement)
+
 (!define-type-method (array :unparse) (type)
   (let ((dims (array-type-dimensions type))
         (eltype (type-specifier (array-type-element-type type)))
-        (complexp (array-type-complexp type)))
-    (cond ((eq dims '*)
-           (if (eq eltype '*)
-               (ecase complexp
-                 ((t) '(and array (not simple-array)))
-                 ((:maybe) 'array)
-                 ((nil) 'simple-array))
-               (ecase complexp
-                 ((t) `(and (array ,eltype) (not simple-array)))
-                 ((:maybe) `(array ,eltype))
-                 ((nil) `(simple-array ,eltype)))))
-          ((= (length dims) 1)
-           (if complexp
-               (let ((answer
-                      (if (eq (car dims) '*)
-                          (case eltype
-                            (bit 'bit-vector)
-                            ((base-char #!-sb-unicode character) 'base-string)
-                            (* 'vector)
-                            (t `(vector ,eltype)))
-                          (case eltype
-                            (bit `(bit-vector ,(car dims)))
-                            ((base-char #!-sb-unicode character)
-                             `(base-string ,(car dims)))
-                            (t `(vector ,eltype ,(car dims)))))))
-                 (if (eql complexp :maybe)
-                     answer
-                     `(and ,answer (not simple-array))))
-               (if (eq (car dims) '*)
-                   (case eltype
-                     (bit 'simple-bit-vector)
-                     ((base-char #!-sb-unicode character) 'simple-base-string)
-                     ((t) 'simple-vector)
-                     (t `(simple-array ,eltype (*))))
-                   (case eltype
-                     (bit `(simple-bit-vector ,(car dims)))
-                     ((base-char #!-sb-unicode character)
-                      `(simple-base-string ,(car dims)))
-                     ((t) `(simple-vector ,(car dims)))
-                     (t `(simple-array ,eltype ,dims))))))
-          (t
-           (ecase complexp
-             ((t) `(and (array ,eltype ,dims) (not simple-array)))
-             ((:maybe) `(array ,eltype ,dims))
-             ((nil) `(simple-array ,eltype ,dims)))))))
+        (complexp (array-type-complexp type))
+        (displacedp (array-type-displacedp type)))
+    (flet ((maybe-refine-array-specifier (type)
+             (typecase (cons displacedp complexp)
+               ((cons null null) type)
+               ((cons null (eql :maybe)) `(and ,type (not (satisfies array-displacement))))
+               ((cons null (eql t)) `(and ,type (not simple-array) (not (satisfies array-displacement))))
+               ((cons (eql :maybe) (eql :maybe)) type)
+               ((cons (eql :maybe) (eql t)) `(and ,type (not simple-array)))
+               ((cons (eql t) (eql t)) `(and ,type (satisfies array-displacement)))
+               (t (bug "unforseen displacedp / complexp pair: ~S"
+                       (cons displacedp complexp))))))
+      (cond ((eq dims '*)
+             (maybe-refine-array-specifier
+              (if (eq eltype '*)
+                  (if complexp 'array 'simple-array)
+                  `(,(if complexp 'array 'simple-array) ,eltype))))
+            ((= (length dims) 1)
+             (if complexp
+                 (let ((answer
+                        (if (eq (car dims) '*)
+                            (case eltype
+                              (bit 'bit-vector)
+                              ((base-char #!-sb-unicode character) 'base-string)
+                              (* 'vector)
+                              (t `(vector ,eltype)))
+                            (case eltype
+                              (bit `(bit-vector ,(car dims)))
+                              ((base-char #!-sb-unicode character)
+                                 `(base-string ,(car dims)))
+                              (t `(vector ,eltype ,(car dims)))))))
+                   (maybe-refine-array-specifier answer))
+                 (if (eq (car dims) '*)
+                     (case eltype
+                       (bit 'simple-bit-vector)
+                       ((base-char #!-sb-unicode character) 'simple-base-string)
+                       ((t) 'simple-vector)
+                       (t `(simple-array ,eltype (*))))
+                     (case eltype
+                       (bit `(simple-bit-vector ,(car dims)))
+                       ((base-char #!-sb-unicode character)
+                          `(simple-base-string ,(car dims)))
+                       ((t) `(simple-vector ,(car dims)))
+                       (t `(simple-array ,eltype ,dims))))))
+            (t
+             (maybe-refine-array-specifier
+              `(,(if complexp 'array 'simple-array) ,eltype ,dims)))))))
 
 (!define-type-method (array :simple-subtypep) (type1 type2)
   (let ((dims1 (array-type-dimensions type1))
@@ -2532,7 +2577,9 @@ used for a COMPLEX component.~:@>"
   (let ((dims1 (array-type-dimensions type1))
         (dims2 (array-type-dimensions type2))
         (complexp1 (array-type-complexp type1))
-        (complexp2 (array-type-complexp type2)))
+        (complexp2 (array-type-complexp type2))
+        (displacedp1 (array-type-displacedp type1))
+        (displacedp2 (array-type-displacedp type2)))
     ;; See whether dimensions are compatible.
     (cond ((not (or (eq dims1 '*) (eq dims2 '*)
                     (and (= (length dims1) (length dims2))
@@ -2544,6 +2591,11 @@ used for a COMPLEX component.~:@>"
           ((not (or (eq complexp1 :maybe)
                     (eq complexp2 :maybe)
                     (eq complexp1 complexp2)))
+           (values nil t))
+          ;; See whether displacedpness is compatible.
+          ((not (or (eq displacedp1 :maybe)
+                    (eq displacedp2 :maybe)
+                    (eq displacedp1 displacedp2)))
            (values nil t))
           ;; Old comment:
           ;;
@@ -2579,6 +2631,8 @@ used for a COMPLEX component.~:@>"
           (dims2 (array-type-dimensions type2))
           (complexp1 (array-type-complexp type1))
           (complexp2 (array-type-complexp type2))
+          (displacedp1 (array-type-displacedp type1))
+          (displacedp2 (array-type-displacedp type2))
           (eltype1 (array-type-element-type type1))
           (eltype2 (array-type-element-type type2))
           (stype1 (array-type-specialized-element-type type1))
@@ -2601,6 +2655,7 @@ used for a COMPLEX component.~:@>"
                           (t
                            '*))
         :complexp (if (eq complexp1 complexp2) complexp1 :maybe)
+        :displacedp (if (eq displacedp1 displacedp2) displacedp1 :maybe)
         :element-type (if (or wild2 e2) eltype2 eltype1)
         :specialized-element-type (if wild2 stype2 stype1)))))
 
@@ -2611,6 +2666,8 @@ used for a COMPLEX component.~:@>"
             (dims2 (array-type-dimensions type2))
             (complexp1 (array-type-complexp type1))
             (complexp2 (array-type-complexp type2))
+            (displacedp1 (array-type-displacedp type1))
+            (displacedp2 (array-type-displacedp type2))
             (eltype1 (array-type-element-type type1))
             (eltype2 (array-type-element-type type2))
             (stype1 (array-type-specialized-element-type type1))
@@ -2623,6 +2680,7 @@ used for a COMPLEX component.~:@>"
                                      (mapcar (lambda (x y) (if (eq x '*) y x))
                                              dims1 dims2)))
                   :complexp (if (eq complexp1 :maybe) complexp2 complexp1)
+                  :displacedp (if (eq displacedp1 :maybe) displacedp2 displacedp1)
                   :element-type (cond
                                   ((eq eltype1 *wild-type*) eltype2)
                                   ((eq eltype2 *wild-type*) eltype1)
@@ -3482,6 +3540,7 @@ used for a COMPLEX component.~:@>"
   (specialize-array-type
    (make-array-type :dimensions (canonical-array-dimensions dimensions)
                     :complexp :maybe
+                    :displacedp :maybe
                     :element-type (if (eq element-type '*)
                                       *wild-type*
                                       (specifier-type element-type)))))
@@ -3491,6 +3550,7 @@ used for a COMPLEX component.~:@>"
   (specialize-array-type
    (make-array-type :dimensions (canonical-array-dimensions dimensions)
                     :complexp nil
+                    :displacedp nil
                     :element-type (if (eq element-type '*)
                                       *wild-type*
                                       (specifier-type element-type)))))
