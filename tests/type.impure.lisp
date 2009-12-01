@@ -760,4 +760,19 @@
     (test 'subtypep-fwd-testb1 'subtypep-fwd-testb2 nil nil)
     (test 'subtypep-fwd-testb2 'subtypep-fwd-testb1 t t)))
 
+;;; new array types
+(assert-t-t (subtypep '(and array (satisfies array-displacement))
+                      '(and array (not simple-array))))
+(assert-t-t (subtypep '(and array (not simple-array) (not (satisfies array-displacement)))
+                      '(and array (not simple-array))))
+(assert-t-t (subtypep '(and simple-array (satisfies array-displacement)) nil))
+(assert-t-t (subtypep 'simple-array
+                      '(and simple-array (not (satisfies array-displacement)))))
+(assert-t-t (subtypep 'simple-array
+                      '(and array (not (satisfies array-displacement)))))
+
+(assert-nil-t (subtypep 'array '(and array (satisfies array-displacement))))
+(assert-nil-t (subtypep 'array '(and array (not (satisfies array-displacement)))))
+(assert-nil-t (subtypep '(and array (not (satisfies array-displacement)))
+                        'simple-array))
 ;;; success
