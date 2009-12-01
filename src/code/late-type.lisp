@@ -2482,11 +2482,15 @@ used for a COMPLEX component.~:@>"
     (flet ((maybe-refine-array-specifier (type)
              (typecase (cons displacedp complexp)
                ((cons null null) type)
-               ((cons null (eql :maybe)) `(and ,type (not (satisfies array-displacement))))
-               ((cons null (eql t)) `(and ,type (not simple-array) (not (satisfies array-displacement))))
+               ((cons null (eql :maybe))
+                `(and ,type (not (satisfies array-displacement))))
+               ((cons null (eql t))
+                `(and ,type (not simple-array)
+                      (not (satisfies array-displacement))))
                ((cons (eql :maybe) (eql :maybe)) type)
                ((cons (eql :maybe) (eql t)) `(and ,type (not simple-array)))
-               ((cons (eql t) (eql t)) `(and ,type (satisfies array-displacement)))
+               ((cons (eql t) (eql t))
+                `(and ,type (satisfies array-displacement)))
                (t (bug "unforseen displacedp / complexp pair: ~S"
                        (cons displacedp complexp))))))
       (cond ((eq dims '*)
@@ -2528,7 +2532,8 @@ used for a COMPLEX component.~:@>"
 (!define-type-method (array :simple-subtypep) (type1 type2)
   (let ((dims1 (array-type-dimensions type1))
         (dims2 (array-type-dimensions type2))
-        (complexp2 (array-type-complexp type2)))
+        (complexp2 (array-type-complexp type2))
+        (displacedp2 (array-type-displacedp type2)))
     (cond (;; not subtypep unless dimensions are compatible
            (not (or (eq dims2 '*)
                     (and (not (eq dims1 '*))
@@ -2546,6 +2551,10 @@ used for a COMPLEX component.~:@>"
           ;; not subtypep unless complexness is compatible
           ((not (or (eq complexp2 :maybe)
                     (eq (array-type-complexp type1) complexp2)))
+           (values nil t))
+          ;; not subtypep unless displacedness is compatible
+          ((not (or (eq displacedp2 :maybe)
+                    (eq (array-type-displacedp type1) displacedp2)))
            (values nil t))
           ;; Since we didn't fail any of the tests above, we win
           ;; if the TYPE2 element type is wild.

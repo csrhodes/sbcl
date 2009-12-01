@@ -406,12 +406,14 @@
     (string
      (make-array-type :dimensions (array-dimensions x)
                       :complexp (not (typep x 'simple-array))
+                      :displacedp (if (typep x 'simple-array) nil :maybe)
                       :element-type (specifier-type 'base-char)
                       :specialized-element-type (specifier-type 'base-char)))
     (array
      (let ((etype (specifier-type (array-element-type x))))
        (make-array-type :dimensions (array-dimensions x)
                         :complexp (not (typep x 'simple-array))
+                        :displacedp (if (typep x 'simple-array) nil :maybe)
                         :element-type etype
                         :specialized-element-type etype)))
     (cons (specifier-type 'cons))
