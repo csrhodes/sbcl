@@ -459,6 +459,14 @@
                       ;; two widetag tests, so it's only a bit lame.
                       `((typep ,n-obj '(not simple-array))))
                   ,@tests
+                  ,@(unless (eql (array-type-displacedp type) :maybe)
+                      (if (array-type-displacedp type)
+                          (if headerp
+                              `((%array-displaced-p ,n-obj))
+                              `((and (array-header-p ,n-obj) (%array-displaced-p ,n-obj))))
+                          (if headerp
+                              `((not (%array-displaced-p ,n-obj)))
+                              `((not (and (array-header-p ,n-obj) (%array-displaced-p ,n-obj)))))))
                   ,@(test-array-element-type n-obj type stype headerp))))
         `(%typep ,obj ',(type-specifier type)))))
 
