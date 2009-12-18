@@ -114,7 +114,9 @@
 ;;; arrays, but after benchmarking (on x86), Nikodemus didn't find any cases
 ;;; where it actually helped with non-simple arrays -- to the contrary, it
 ;;; only made for bigger and up to 100% slower code.
-(deftransform hairy-data-vector-ref ((array index) (simple-array t) *)
+(deftransform hairy-data-vector-ref ((array index)
+                                     ((or simple-array complex-non-displaced-vector) t)
+                                     *)
   "avoid runtime dispatch on array element type"
   (let* ((type (lvar-type array))
          (element-ctype (array-type-upgraded-element-type type))
@@ -202,7 +204,7 @@
 ;;; where it actually helped with non-simple arrays -- to the contrary, it
 ;;; only made for bigger and up 1o 100% slower code.
 (deftransform hairy-data-vector-set ((array index new-value)
-                                     (simple-array t t)
+                                     ((or simple-array complex-non-displaced-vector) t t)
                                      *)
   "avoid runtime dispatch on array element type"
   (let* ((type (lvar-type array))
@@ -298,7 +300,7 @@
       (values-specifier-type `(values ,spec index)))))
 
 (deftransform %data-vector-and-index ((%array %index)
-                                      (simple-array t)
+                                      ((or simple-array complex-non-displaced-vector) t)
                                       *)
   ;; KLUDGE: why the percent signs?  Well, ARRAY and INDEX are
   ;; respectively exported from the CL and SB!INT packages, which

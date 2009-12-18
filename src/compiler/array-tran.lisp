@@ -13,6 +13,9 @@
 
 ;;;; utilities for optimizing array operations
 
+(deftype complex-non-displaced-vector ()
+  '(and vector (not simple-array) (not (satisfies array-displacement))))
+
 ;;; Return UPGRADED-ARRAY-ELEMENT-TYPE for LVAR, or do
 ;;; GIVE-UP-IR1-TRANSFORM if the upgraded element type can't be
 ;;; determined.
@@ -1187,7 +1190,34 @@
   `(hairy-data-vector-set array
                           (%check-bound array (array-total-size array) index)
                           new-value))
+
+
 
+;;;; extensible non-displaced vectors
+
+(deftransform vector-pop ((array) (complex-non-displaced-vector) *)
+  `(let ((fill-pointer (fill-pointer array)))
+     (if (zerop fill-pointer)
+         (error "There is nothing left to pop.")
+         ;; disable bounds checking (and any fixnum test)
+         (locally (declare (optimize (safety 0)))
+           (aref array
+                 (setf (%array-fill-pointer array)
+                       (1- fill-pointer)))))))
+
+(deftransform vector-push-extend ((new-element vector) (t complex-non-displaced-vector) *)
+  `(let ((min-extension (length vector)))
+     (let ((fill-pointer (fill-pointer vector)))
+       (declare (fixnum fill-pointer))
+       (when (= fill-pointer (%array-available-elements vector))
+         (adjust-array vector (+ fill-pointer (max 1 min-extension))))
+       ;; disable bounds checking
+       (locally (declare (optimize (safety 0)))
+         (setf (aref vector fill-pointer) new-element))
+       (setf (%array-fill-pointer vector) (1+ fill-pointer))
+       fill-pointer)))
+
+;
 ;;;; bit-vector array operation canonicalization
 ;;;;
 ;;;; We convert all bit-vector operations to have the result array
