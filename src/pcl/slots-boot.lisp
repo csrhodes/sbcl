@@ -135,7 +135,8 @@
 
 (defun get-optimized-std-accessor-method-function (class slotd name)
   (cond
-    ((structure-class-p class)
+    ((or (structure-class-p class)
+         (typep slotd 'structure-effective-slot-definition))
      (ecase name
        (reader (slot-definition-internal-reader-function slotd))
        (writer (slot-definition-internal-writer-function slotd))
@@ -588,7 +589,7 @@
 ;;; The only bit of cleverness in the implementation is to make the
 ;;; vectors fairly tight, but always longer then 0 elements:
 ;;;
-;;; -- We don't want to waste huge amounts of space no these vectors,
+;;; -- We don't want to waste huge amounts of space on these vectors,
 ;;;    which are mostly required by things like SLOT-VALUE with a
 ;;;    variable slot name, so a constant extension over the minimum
 ;;;    size seems like a good choise.
@@ -649,7 +650,8 @@
                      (list* name
                             (cons (when (or bootstrap
                                             (and (standard-class-p class)
-                                                 (slot-accessor-std-p slot 'all)))
+                                                 (slot-accessor-std-p slot 'all)
+                                                 (not (structure-class-p (slot-definition-allocation-class slot)))))
                                     (if bootstrap
                                         (early-slot-definition-location slot)
                                         (slot-definition-location slot)))

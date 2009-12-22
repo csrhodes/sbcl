@@ -498,7 +498,11 @@
    (internal-writer-function
      :initform nil
      :initarg :internal-writer-function
-     :accessor slot-definition-internal-writer-function)))
+     :accessor slot-definition-internal-writer-function)
+   (allocation-class
+    :initform nil
+    :initarg :allocation-class
+    :accessor slot-definition-allocation-class)))
 
 (defclass direct-slot-definition (slot-definition)
   ())

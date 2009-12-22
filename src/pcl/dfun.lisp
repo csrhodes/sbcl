@@ -1194,7 +1194,9 @@ Except see also BREAK-VICIOUS-METACIRCLE.  -- CSR, 2003-05-28
                (or early-p
                    (slot-accessor-std-p slotd accessor-type))
                (or early-p
-                   (not (safe-p accessor-class))))
+                   (not (safe-p accessor-class)))
+               (or early-p
+                   (not (typep slotd 'structure-effective-slot-definition))))
       (values (if early-p
                   (early-slot-definition-location slotd)
                   (slot-definition-location slotd))

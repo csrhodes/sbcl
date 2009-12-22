@@ -919,10 +919,11 @@
   (let ((instance-slots ())
         (class-slots    ()))
     (dolist (eslotd eslotds)
-      (let ((alloc (slot-definition-allocation eslotd)))
-        (case alloc
-          (:instance (push eslotd instance-slots))
-          (:class (push eslotd class-slots)))))
+      (unless (typep eslotd 'structure-effective-slot-definition)
+        (let ((alloc (slot-definition-allocation eslotd)))
+          (case alloc
+            (:instance (push eslotd instance-slots))
+            (:class (push eslotd class-slots))))))
 
     ;; If there is a change in the shape of the instances then the
     ;; old class is now obsolete.
@@ -1072,40 +1073,42 @@
 (defun std-compute-slots-around (class eslotds)
   (let ((location -1)
         (safe (safe-p class)))
-    (dolist (eslotd eslotds eslotds)
-      (setf (slot-definition-location eslotd)
-            (case (slot-definition-allocation eslotd)
-              (:instance
-               (incf location))
-              (:class
-               (let* ((name (slot-definition-name eslotd))
-                      (from-class
-                       (or
-                        (slot-definition-allocation-class eslotd)
-                        ;; we get here if the user adds an extra slot
-                        ;; himself...
+    (flet ((std-slot-definition-location (eslotd)
+             (case (slot-definition-allocation eslotd)
+               (:instance (incf location))
+               (:class
+                (let* ((name (slot-definition-name eslotd))
+                       (from-class
+                        (or
+                         (slot-definition-allocation-class eslotd)
+                         ;; we get here if the user adds an extra slot
+                         ;; himself...
                         (setf (slot-definition-allocation-class eslotd)
                               class)))
-                      ;; which raises the question of what we should
-                      ;; do if we find that said user has added a slot
-                      ;; with the same name as another slot...
-                      (cell (or (assq name (class-slot-cells from-class))
-                                (let ((c (cons name +slot-unbound+)))
-                                  (push c (class-slot-cells from-class))
-                                  c))))
-                 (aver (consp cell))
-                 (if (eq +slot-unbound+ (cdr cell))
+                       ;; which raises the question of what we should
+                       ;; do if we find that said user has added a slot
+                       ;; with the same name as another slot...
+                       (cell (or (assq name (class-slot-cells from-class))
+                                 (let ((c (cons name +slot-unbound+)))
+                                   (push c (class-slot-cells from-class))
+                                   c))))
+                  (aver (consp cell))
+                  (if (eq +slot-unbound+ (cdr cell))
                      ;; We may have inherited an initfunction FIXME: Is this
-                     ;; really right? Is the initialization in
-                     ;; SHARED-INITIALIZE (STD-CLASS) not enough?
-                     (let ((initfun (slot-definition-initfunction eslotd)))
-                       (if initfun
-                           (rplacd cell (call-initfun initfun eslotd safe))
-                           cell))
-                     cell)))))
-      (unless (slot-definition-class eslotd)
-        (setf (slot-definition-class eslotd) class))
-      (initialize-internal-slot-functions eslotd))))
+                      ;; really right? Is the initialization in
+                      ;; SHARED-INITIALIZE (STD-CLASS) not enough?
+                      (let ((initfun (slot-definition-initfunction eslotd)))
+                        (if initfun
+                            (rplacd cell (call-initfun initfun eslotd safe))
+                            cell))
+                      cell))))))
+      (dolist (eslotd eslotds eslotds)
+        (unless (typep eslotd 'structure-effective-slot-definition)
+          (setf (slot-definition-location eslotd)
+                (std-slot-definition-location eslotd)))
+        (unless (slot-definition-class eslotd)
+          (setf (slot-definition-class eslotd) class))
+        (initialize-internal-slot-functions eslotd)))))
 
 (defmethod compute-slots :around ((class standard-class))
   (let ((eslotds (call-next-method)))
@@ -1135,9 +1138,11 @@
          (slotd (apply #'make-instance class initargs)))
     slotd))
 
-(defmethod effective-slot-definition-class ((class std-class) &rest initargs)
+(defmethod effective-slot-definition-class ((class std-class) &rest initargs &key allocation-class)
   (declare (ignore initargs))
-  (find-class 'standard-effective-slot-definition))
+  (if (structure-class-p allocation-class)
+      (find-class 'structure-effective-slot-definition)
+      (find-class 'standard-effective-slot-definition)))
 
 (defmethod effective-slot-definition-class ((class structure-class) &rest initargs)
   (declare (ignore initargs))
@@ -1206,6 +1211,20 @@
            :internal-writer-function
            (slot-definition-internal-writer-function slotd)
            (call-next-method))))
+
+(defmethod compute-effective-slot-definition-initargs :around
+    ((class standard-class) direct-slotds)
+  (let ((initargs (call-next-method)))
+    (if (structure-class-p (getf initargs :allocation-class))
+        (let ((slotd (car direct-slotds)))
+          (list* :defstruct-accessor-symbol
+                 (slot-definition-defstruct-accessor-symbol slotd)
+                 :internal-reader-function
+                 (slot-definition-internal-reader-function slotd)
+                 :internal-writer-function
+                 (slot-definition-internal-writer-function slotd)
+                 initargs))
+        initargs)))
 
 ;;; NOTE: For bootstrapping considerations, these can't use MAKE-INSTANCE
 ;;;       to make the method object. They have to use make-a-method which
