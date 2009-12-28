@@ -282,40 +282,43 @@
                                  new-value &optional safep)
   (let ((class (if (consp sparameter) (cdr sparameter) *the-class-t*))
         (parameter (if (consp sparameter) (car sparameter) sparameter)))
-    (if (and (eq **boot-state** 'complete)
-             (classp class)
-             (memq *the-class-structure-object* (class-precedence-list class)))
-        (let ((slotd (find-slot-definition class slot-name)))
-          (ecase read/write
-            (:read
-             `(,(slot-definition-defstruct-accessor-symbol slotd) ,parameter))
-            (:write
-             `(setf (,(slot-definition-defstruct-accessor-symbol slotd)
-                     ,parameter)
-                    ,new-value))
-            (:boundp
-             t)))
-        (let* ((parameter-entry (assq parameter slots))
-               (slot-entry      (assq slot-name (cdr parameter-entry)))
-               (position (posq parameter-entry slots))
-               (pv-offset-form (list 'pv-offset ''.PV-OFFSET.)))
-          (unless parameter-entry
-            (bug "slot optimization bewilderment: O-I-A"))
-          (unless slot-entry
-            (setq slot-entry (list slot-name))
-            (push slot-entry (cdr parameter-entry)))
-          (push pv-offset-form (cdr slot-entry))
-          (ecase read/write
-            (:read
-             `(instance-read ,pv-offset-form ,parameter ,position
-                             ',slot-name ',class))
-            (:write
-             `(let ((.new-value. ,new-value))
-                (instance-write ,pv-offset-form ,parameter ,position
-                                ',slot-name ',class .new-value. ,safep)))
-            (:boundp
-             `(instance-boundp ,pv-offset-form ,parameter ,position
-                               ',slot-name ',class)))))))
+    (flet ((optimize-standardish-instance-access ()
+             (let* ((parameter-entry (assq parameter slots))
+                    (slot-entry (assq slot-name (cdr parameter-entry)))
+                    (position (posq parameter-entry slots))
+                    (pv-offset-form (list 'pv-offset ''.PV-OFFSET.)))
+               (unless parameter-entry
+                 (bug "slot optimization bewilderment: O-I-A"))
+               (unless slot-entry
+                 (setq slot-entry (list slot-name))
+                 (push slot-entry (cdr parameter-entry)))
+               (push pv-offset-form (cdr slot-entry))
+               (ecase read/write
+                 (:read
+                  `(instance-read ,pv-offset-form ,parameter ,position
+                                  ',slot-name ',class))
+                 (:write
+                  `(let ((.new-value. ,new-value))
+                     (instance-write ,pv-offset-form ,parameter ,position
+                                     ',slot-name ',class .new-value. ,safep)))
+                 (:boundp
+                  `(instance-boundp ,pv-offset-form ,parameter ,position
+                                    ',slot-name ',class))))))
+      (if (and (eq **boot-state** 'complete)
+               (classp class)
+               (memq *the-class-structure-object* (class-precedence-list class)))
+          (let ((slotd (find-slot-definition class slot-name)))
+            (if (typep slotd 'structure-effective-slot-definition)
+                (ecase read/write
+                  (:read
+                   `(,(slot-definition-defstruct-accessor-symbol slotd) ,parameter))
+                  (:write
+                   `(setf (,(slot-definition-defstruct-accessor-symbol slotd)
+                            ,parameter)
+                          ,new-value))
+                  (:boundp t))
+                (optimize-standardish-instance-access)))
+          (optimize-standardish-instance-access)))))
 
 (define-walker-template pv-offset) ; These forms get munged by mutate slots.
 (defmacro pv-offset (arg) arg)

@@ -49,6 +49,17 @@
 (setf (struct1-a *class1b*) 17)
 (assert (= (struct1-a *class1b*) 17))
 (assert (= (slot-value *class1b* 'a) 17))
+
+(defgeneric foo1a (o)
+  (:method ((o class1a))
+    (with-slots (a b) o
+      (list a b))))
+(defgeneric foo1b (o)
+  (:method ((o class1b))
+    (with-slots (a b) o
+      (list a b))))
+(assert (equalp (foo1a *class1a*) (list 17 4)))
+(assert (equalp (foo1b *class1b*) (list 17 4)))
 
 (setf sb-ext:*evaluator-mode* :compile)
 
@@ -81,4 +92,15 @@
 (setf (struct2-a *class2b*) 17)
 (assert (= (struct2-a *class2b*) 17))
 (assert (= (slot-value *class2b* 'a) 17))
->>>>>>> do the business of getting the effective slot definitions (roughly) right.
+
+(defgeneric foo2a (o)
+  (:method ((o class2a))
+    (with-slots (a b) o
+      (list a b))))
+(defgeneric foo2b (o)
+  (:method ((o class2b))
+    (with-slots (a b) o
+      (list a b))))
+(assert (equalp (foo2a *class2a*) (list 17 4)))
+(assert (equalp (foo2b *class2b*) (list 17 4)))
+

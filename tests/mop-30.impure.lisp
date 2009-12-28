@@ -94,4 +94,3 @@
         (foo-bar/quux (make-instance 'foo :bar bar))
       (assert (eq bar bar?))
       (assert (eq +slot-unbound+ quux?)))))
-
