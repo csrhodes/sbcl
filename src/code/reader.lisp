@@ -17,7 +17,7 @@
 ;;; floating-point number that has no exponent marker or that has e or
 ;;; E for an exponent marker"
 (defvar *read-default-float-format* 'single-float)
-(declaim (type (member short-float single-float double-float long-float)
+(declaim (type (member short-float single-float double-float long-float rational)
                *read-default-float-format*))
 
 (defvar *readtable*)
@@ -171,11 +171,13 @@
       ((> i (char-code #\9)))
     (!set-constituent-trait (code-char i) +char-attr-constituent-digit+))
   (!set-constituent-trait #\E +char-attr-constituent-expt+)
+  (!set-constituent-trait #\R +char-attr-constituent-expt+)  
   (!set-constituent-trait #\F +char-attr-constituent-expt+)
   (!set-constituent-trait #\D +char-attr-constituent-expt+)
   (!set-constituent-trait #\S +char-attr-constituent-expt+)
   (!set-constituent-trait #\L +char-attr-constituent-expt+)
   (!set-constituent-trait #\e +char-attr-constituent-expt+)
+  (!set-constituent-trait #\r +char-attr-constituent-expt+)
   (!set-constituent-trait #\f +char-attr-constituent-expt+)
   (!set-constituent-trait #\d +char-attr-constituent-expt+)
   (!set-constituent-trait #\s +char-attr-constituent-expt+)
@@ -1329,7 +1331,7 @@ standard Lisp readtable when NIL."
      (setq one-digit t)))
 
 (defmacro exponent-letterp (letter)
-  `(memq ,letter '(#\E #\S #\F #\L #\D #\e #\s #\f #\l #\d)))
+  `(memq ,letter '(#\E #\R #\S #\F #\L #\D #\e #\r #\s #\f #\l #\d)))
 
 ;;; FIXME: It would be cleaner to have these generated automatically
 ;;; by compile-time code instead of having them hand-created like
@@ -1454,6 +1456,7 @@ standard Lisp readtable when NIL."
            ;; Generate and return the float, depending on FLOAT-CHAR:
            (let* ((float-format (case (char-upcase float-char)
                                   (#\E *read-default-float-format*)
+                                  (#\R 'rational)
                                   (#\S 'short-float)
                                   (#\F 'single-float)
                                   (#\D 'double-float)
