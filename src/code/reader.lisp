@@ -171,7 +171,7 @@
       ((> i (char-code #\9)))
     (!set-constituent-trait (code-char i) +char-attr-constituent-digit+))
   (!set-constituent-trait #\E +char-attr-constituent-expt+)
-  (!set-constituent-trait #\R +char-attr-constituent-expt+)  
+  (!set-constituent-trait #\R +char-attr-constituent-expt+)
   (!set-constituent-trait #\F +char-attr-constituent-expt+)
   (!set-constituent-trait #\D +char-attr-constituent-expt+)
   (!set-constituent-trait #\S +char-attr-constituent-expt+)
