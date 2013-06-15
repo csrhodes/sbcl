@@ -1452,12 +1452,14 @@
                          :specialized-element-type (array-type-specialized-element-type type1)))))
 
 (!define-type-method (hairy :complex-intersection2) (type1 type2)
-  (let ((specifier (hairy-type-specifier type2)))
-    (when (and (consp specifier) (eq (car specifier) 'satisfies))
-      (cond
-        ((and (eq (cadr specifier) 'array-displacement)
-              (array-type-p type1))
-         (maybe-displaced-array-refinement type1))))))
+  (if (maybe-reparse-specifier! type2)
+      (type-intersection type1 type2)
+      (let ((specifier (hairy-type-specifier type2)))
+        (when (and (consp specifier) (eq (car specifier) 'satisfies))
+          (cond
+            ((and (eq (cadr specifier) 'array-displacement)
+                  (array-type-p type1))
+             (maybe-displaced-array-refinement type1)))))))
 
 (!define-type-method (hairy :simple-union2)
                      (type1 type2)
