@@ -516,7 +516,7 @@ evaluated as a PROGN."
              do (setf (aref table (mod hash tlength))
                       (nconc (aref table (mod hash tlength)) (list form))))
           (loop for i from 0 for x across table
-             when x do (push 'list (aref table i)))
+             when x do (if (> (length x) 1) (push 'list (aref table i)) (setf (aref table i) (car (aref table i)))))
           `(let ((*restart-clusters*
                   (cons (vector ,@(coerce table 'list)) *restart-clusters*)))
              (declare (truly-dynamic-extent *restart-clusters*))
