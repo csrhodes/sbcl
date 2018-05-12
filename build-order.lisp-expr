@@ -114,6 +114,8 @@
  ("src/compiler/generic/early-objdef" :c-headers)
  ("src/code/early-array" :c-headers) ; needs "early-vm" numbers
 
+ ("src/code/cross-hash" :not-target) ; needs "early-vm" and "parms" numbers
+
  ;; This has the BARRIER stuff that the threading support needs,
  ;; required for some code in 'early-extensions'
  ("src/code/barrier" :not-host)
