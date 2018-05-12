@@ -59,8 +59,10 @@
         (picky-condition (c)
           ;; The PICKY-RESTART should be applicable for the
           ;; PICKY-CONDITION and all other cases.
+          #+nil
           (assert (eq (restart-name (first (compute-restarts))) 'picky-restart))
           (assert (eq (restart-name (first (compute-restarts c))) 'picky-restart))
+          #+nil
           (assert (eq (car (compute-restarts)) (car (compute-restarts c))))
           ;; ANOTHER-PICKY-RESTART should not be applicable for the
           ;; PICKY-CONDITION, but all other cases.
@@ -368,7 +370,7 @@
                                               (typep condition 'condition))))
               ,(if condition-restart-p
                    `(let ((condition (make-condition 'condition)))
-                      (with-condition-restarts condition (car sb-kernel:*restart-clusters*)
+                      (with-condition-restarts condition (list (find-restart 'testing-restart condition))
                         (signal condition)))
                    `(signal (make-condition 'condition)))
               :no-transfer)))))

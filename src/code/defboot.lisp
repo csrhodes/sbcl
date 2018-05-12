@@ -482,35 +482,45 @@ evaluated as a PROGN."
    effect. Users probably want to use RESTART-CASE. A case-name of NIL
    indicates an anonymous restart. When bindings contain the same
    restart name, FIND-RESTART will find the first such binding."
-  (flet ((parse-binding (binding)
-           (with-current-source-form (binding)
-             (unless (>= (length binding) 2)
-               (error "ill-formed restart binding: ~S" binding))
-             (destructuring-bind (name function
-                                       &key interactive-function
-                                       test-function
-                                       report-function)
-                 binding
-               (unless (or name report-function)
-                 (warn "Unnamed restart does not have a report function: ~
+  (if (null bindings)
+      `(progn ,@forms)
+      (flet ((parse-binding (binding)
+               (with-current-source-form (binding)
+                 (unless (>= (length binding) 2)
+                   (error "ill-formed restart binding: ~S" binding))
+                 (destructuring-bind (name function
+                                           &key interactive-function
+                                           test-function
+                                           report-function)
+                     binding
+                   (unless (symbolp name)
+                     (error "illegal restart name: ~S" name))
+                   (unless (or name report-function)
+                     (warn "Unnamed restart does not have a report function: ~
                         ~S" binding))
-               `(make-restart ',name ,function
-                              ,@(and (or report-function
-                                         interactive-function
-                                         test-function)
-                                     `(,report-function))
-                              ,@(and (or interactive-function
-                                         test-function)
-                                     `(,interactive-function))
-                              ,@(and test-function
-                                     `(,test-function)))))))
-    (if (null bindings)
-        `(progn ,@forms)
-        `(let ((*restart-clusters*
-                (cons (list ,@(mapcar #'parse-binding bindings))
-                      *restart-clusters*)))
-           (declare (truly-dynamic-extent *restart-clusters*))
-           ,@forms))))
+                   `(make-restart ',name ,function
+                                  ,@(and (or report-function
+                                             interactive-function
+                                             test-function)
+                                         `(,report-function))
+                                  ,@(and (or interactive-function
+                                             test-function)
+                                         `(,interactive-function))
+                                  ,@(and test-function
+                                         `(,test-function)))))))
+        (let* ((binding-forms (mapcar #'parse-binding bindings))
+               (hashes (mapcar (lambda (x) (ensure-symbol-hash (car x))) bindings))
+               (tlength (ash 1 (1+ (integer-length (1- (length bindings))))))
+               (table (make-array tlength :initial-element nil)))
+          (loop for hash in hashes for form in binding-forms
+             do (setf (aref table (mod hash tlength))
+                      (nconc (aref table (mod hash tlength)) (list form))))
+          (loop for i from 0 for x across table
+             when x do (push 'list (aref table i)))
+          `(let ((*restart-clusters*
+                  (cons (vector ,@(coerce table 'list)) *restart-clusters*)))
+             (declare (truly-dynamic-extent *restart-clusters*))
+             ,@forms)))))
 
 ;;; Transform into WITH-SIMPLE-CONDITION-RESTARTS when appropriate
 (defun munge-restart-case-expression (expression env)

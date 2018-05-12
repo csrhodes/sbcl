@@ -36,7 +36,7 @@
 #!+sb-thread (!define-thread-local *handler-clusters* **initial-handler-clusters**)
 #!-sb-thread (defvar *handler-clusters* **initial-handler-clusters**)
 
-;;; a list of lists of currently active RESTART instances. maintained
+;;; a list of vectors of currently active RESTART instances. maintained
 ;;; by RESTART-BIND.
 (!define-thread-local *restart-clusters* nil)
 
@@ -70,31 +70,45 @@
 
 (defvar *restart-test-stack* nil)
 
-;; Call FUNCTION with all restarts in the current dynamic environment,
-;; 1) that are associated to CONDITION (when CONDITION is NIL, all
-;;    restarts are processed)
-;; 2) and for which the restart test returns non-NIL for CONDITION.
-;; When CALL-TEST-P is non-NIL, all restarts are processed.
-(defun map-restarts (function &optional condition (call-test-p t))
-  (declare (function function))
-  (let ((stack *restart-test-stack*))
-    (dolist (restart-cluster *restart-clusters*)
-      (dolist (restart restart-cluster)
-        (when (and (or (not condition)
-                       (null (restart-associated-conditions restart))
-                       (memq condition (restart-associated-conditions restart)))
-                   ;; A call to COMPUTE-RESTARTS -- from an error,
-                   ;; from user code, whatever -- inside the test
-                   ;; function would cause infinite recursion here, so
-                   ;; we disable each restart using
-                   ;; *restart-test-stack* for the duration of the
-                   ;; test call.
-                   (not (memq restart stack))
-                   (or (not call-test-p)
-                       (let ((*restart-test-stack* (cons restart stack)))
-                         (declare (truly-dynamic-extent *restart-test-stack*))
-                         (funcall (restart-test-function restart) condition))))
-          (funcall function restart))))))
+(macrolet ((maybe-call-function-on-restart ()
+             `(when (and (or (not condition)
+                             (null (restart-associated-conditions restart))
+                             (memq condition (restart-associated-conditions restart)))
+                         ;; A call to COMPUTE-RESTARTS -- from an error,
+                         ;; from user code, whatever -- inside the test
+                         ;; function would cause infinite recursion here, so
+                         ;; we disable each restart using
+                         ;; *restart-test-stack* for the duration of the
+                         ;; test call.
+                         (not (memq restart stack))
+                         (or (not call-test-p)
+                             (let ((*restart-test-stack* (cons restart stack)))
+                               (declare (truly-dynamic-extent *restart-test-stack*))
+                               (funcall (restart-test-function restart) condition))))
+                (funcall function restart))))
+  ;; Call FUNCTION with all restarts in the current dynamic environment,
+  ;; 1) that are associated to CONDITION (when CONDITION is NIL, all
+  ;;    restarts are processed)
+  ;; 2) and for which the restart test returns non-NIL for CONDITION
+  ;;    (when CALL-TEST-P is NIL, all restarts are processed regardless of
+  ;;    restart test functions).
+  (defun map-restarts (function &optional condition (call-test-p t))
+    (declare (type function function))
+    (let ((stack *restart-test-stack*))
+      (dolist (restart-cluster *restart-clusters*)
+        (dovector (restarts restart-cluster)
+          (dolist (restart restarts)
+            (maybe-call-function-on-restart))))))
+  ;; As above, but restricted to restarts whose name is NAME.
+  (defun map-restarts-of-name (name function &optional condition (call-test-p t))
+    (declare (type function function) (type symbol name))
+    (let ((stack *restart-test-stack*))
+      (dolist (restart-cluster *restart-clusters*)
+        (declare (type simple-vector restart-cluster))
+        (let ((index (mod (sxhash name) (length restart-cluster))))
+          (dolist (restart (aref restart-cluster index))
+            (when (eq (restart-name restart) name)
+              (maybe-call-function-on-restart))))))))
 
 (defun compute-restarts (&optional condition)
   "Return a list of all the currently active restarts ordered from most recently
@@ -108,11 +122,14 @@ restarts associated with CONDITION (or with no condition) will be returned."
   (flet ((eq-restart-p (restart)
            (when (eq identifier restart)
              (return-from %find-restart restart)))
+         (restart-p (restart)
+           (return-from %find-restart restart))
+         #+nil
          (named-restart-p (restart)
-           (when (eq identifier (restart-name restart))
+           (when (eq (restart-name restart) identifier)
              (return-from %find-restart restart))))
     ;; KLUDGE: can the compiler infer this dx automatically?
-    (declare (truly-dynamic-extent #'eq-restart-p #'named-restart-p))
+    (declare (truly-dynamic-extent #'eq-restart-p #'restart-p #+nil #'named-restart-p))
     (if (typep identifier 'restart)
         ;; The code under #+previous-... below breaks the abstraction
         ;; introduced by MAP-RESTARTS, but is about twice as
@@ -128,6 +145,9 @@ restarts associated with CONDITION (or with no condition) will be returned."
         ;; The behavior expected in that report can be achieved by the
         ;; following line (which is, of course, the slowest of all
         ;; possibilities):
+        (map-restarts-of-name (restart-name identifier) #'eq-restart-p condition call-test-p)
+
+        #+restart-clusters-are-lists-so-slow
         (map-restarts #'eq-restart-p condition call-test-p)
 
         #+equivalent-to-previous-sbcl-behavior--faster-but-see-bug-774410
@@ -137,7 +157,11 @@ restarts associated with CONDITION (or with no condition) will be returned."
         (and (find-if (lambda (cluster) (find identifier cluster)) *restart-clusters*)
              identifier)
 
-        (map-restarts #'named-restart-p condition call-test-p))))
+        (map-restarts-of-name identifier #'restart-p condition call-test-p)
+
+        #+restart-clusters-are-lists-so-slow
+        (map-restarts #'named-restart-p condition call-test-p)
+        )))
 
 (defun find-restart (identifier &optional condition)
   "Return the first restart identified by IDENTIFIER. If IDENTIFIER is a symbol,
@@ -218,7 +242,7 @@ with that condition (or with no condition) will be returned."
                             (t 'simple-error))
                           function
                           arguments)))
-    (with-condition-restarts condition (car *restart-clusters*)
+    (with-condition-restarts condition (loop for x across (car *restart-clusters*) append x)
       (if (eq function 'cerror)
           (cerror cerror-arg condition)
           (funcall function condition)))))

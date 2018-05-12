@@ -57,7 +57,7 @@
   (assert
    (nth-value 1
               (checked-compile `(lambda ()
-                                  (restart-bind ((1 3))))
+                                  (restart-bind ((a 3))))
                                :allow-warnings t))))
 
 (with-test (:name :transform-call-dfo-consistency)
