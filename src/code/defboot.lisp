@@ -504,11 +504,13 @@ evaluated as a PROGN."
                                      `(,interactive-function))
                               ,@(and test-function
                                      `(,test-function)))))))
-    `(let ((*restart-clusters*
-            (cons (list ,@(mapcar #'parse-binding bindings))
-                  *restart-clusters*)))
-       (declare (truly-dynamic-extent *restart-clusters*))
-       ,@forms)))
+    (if (null bindings)
+        `(progn ,@forms)
+        `(let ((*restart-clusters*
+                (cons (list ,@(mapcar #'parse-binding bindings))
+                      *restart-clusters*)))
+           (declare (truly-dynamic-extent *restart-clusters*))
+           ,@forms))))
 
 ;;; Transform into WITH-SIMPLE-CONDITION-RESTARTS when appropriate
 (defun munge-restart-case-expression (expression env)
