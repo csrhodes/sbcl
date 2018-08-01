@@ -35,6 +35,7 @@
 
 #-warm-build-phase
 (
+ ("src/code/scratch" :not-host :trace-file)
  ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
  ;;; miscellaneous
  ;; This comes as early as possible, so that we catch the source locations
