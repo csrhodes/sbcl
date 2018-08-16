@@ -1271,6 +1271,7 @@
                    "T"                                         ; Sparc "trap"
                    "AND" "OR" "NOT" "PUSH" "POP" "SET" "LOOP"  ; x86
                    "LDB"                                       ; HPPA
+                   "REM"                                       ; RISC-V
                    "BREAK" "BYTE" "CALL" "WORD" "MOVE")        ; generic
                  :test #'string=)))
     (values (funcall (if create 'intern 'find-symbol)
