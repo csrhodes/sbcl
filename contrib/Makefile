@@ -3,7 +3,8 @@ vpath %.fasl ../obj/sbcl-home/contrib/
 all: asdf.fasl sb-posix.fasl sb-bsd-sockets.fasl sb-introspect.fasl sb-cltl2.fasl \
      sb-aclrepl.fasl sb-sprof.fasl sb-capstone.fasl sb-md5.fasl sb-capstone.fasl \
      sb-executable.fasl sb-gmp.fasl sb-mpfr.fasl sb-queue.fasl sb-rotate-byte.fasl \
-     sb-simple-streams.fasl sb-concurrency.fasl sb-cover.fasl sb-graph.fasl
+     sb-simple-streams.fasl sb-concurrency.fasl sb-cover.fasl sb-graph.fasl \
+     sb-nibbles.fasl
 asdf.fasl:
 	sh ./build-contrib $(basename $(@F))
 sb-grovel.fasl: asdf.fasl
@@ -43,4 +44,6 @@ sb-rotate-byte.fasl: asdf.fasl
 sb-simple-streams.fasl: asdf.fasl sb-posix.fasl sb-bsd-sockets.fasl sb-rt.fasl
 	sh ./build-contrib $(basename $(@F))
 sb-graph.fasl: asdf.fasl sb-rt.fasl
+	sh ./build-contrib $(basename $(@F))
+sb-nibbles.fasl: asdf.fasl
 	sh ./build-contrib $(basename $(@F))
