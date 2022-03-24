@@ -479,3 +479,33 @@
                      (loop for x in l
                            collect x)))))
           '(values list &optional))))
+
+(with-test (:name (loop :named-multiply program-error))
+  (assert-error (loop named foo named bar repeat 1) program-error))
+
+(with-test (:name (loop :named-after-iteration program-error))
+  (assert-error (loop for x below 10 named foo) program-error))
+
+(with-test (:name (loop :named-after-initially program-error))
+  (assert-error (loop initially (print 3) named foo repeat 1) program-error))
+
+(with-test (:name (loop :named-after-with program-error))
+  (assert-error (loop with *print-readably* = t named foo repeat 1) program-error))
+
+(with-test (:name (loop :named-after-termination program-error))
+  (assert-error (loop while *print-readably* named foo) program-error))
+
+(with-test (:name (loop :initial-before-variable :no-error))
+  (let ((x 2))
+    (assert (= (loop initially (setq x 3) with y = x repeat 1 sum y) 2)))
+  (let ((x 2))
+    (assert (= (loop initially (setq x 3) for y = x repeat 1 sum y) 3))))
+
+(with-test (:name (loop :initial-after-variable :no-error))
+  (let ((x 2))
+    (assert (= (loop with y = x initially (setq x 3) repeat 1 sum y) 2)))
+  (let ((x 2))
+    (assert (= (loop for y = x initially (setq x 3) repeat 1 sum y) 3))))
+
+(with-test (:name (loop :iteration-after-termination program-error))
+  (assert-error (loop while *print-readably* for x below 10 collect x) program-error))

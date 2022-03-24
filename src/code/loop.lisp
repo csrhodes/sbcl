@@ -293,7 +293,9 @@ code to be loaded.
   keywords             ; hash table, value = (fn-name . extra-data)
   iteration-keywords   ; hash table, value = (fn-name . extra-data)
   for-keywords         ; hash table, value = (fn-name . extra-data)
-  path-keywords)       ; hash table, value = (fn-name . extra-data)
+  path-keywords        ; hash table, value = (fn-name . extra-data)
+  transition-table     ; hash table, value = (((:state :state ...) . :state) ...)
+  )
 (declaim (sb-ext:freeze-type loop-universe))
 (defmethod print-object ((u loop-universe) stream)
   (print-unreadable-object (u stream :type t :identity t)))
@@ -305,12 +307,27 @@ code to be loaded.
                                       :test 'equal)))
              (dolist (x entries)
                (setf (gethash (symbol-name (car x)) ht) (cadr x)))
+             ht))
+         (make-transition-table ()
+           (let ((ht (make-hash-table :size (+ (length keywords) (length iteration-keywords))
+                                      :test 'equal)))
+             (dolist (x keywords)
+               (setf (gethash (symbol-name (car x)) ht)
+                     (or (caddr x)
+                         ;; most loop keywords introduce main clauses.
+                         '(((:start :named :variable) . :main)))))
+             (dolist (x iteration-keywords)
+               (setf (gethash (symbol-name (car x)) ht)
+                     (or (caddr x)
+                         ;; iteration keywords (for/as) introduce variable clauses.
+                         '(((:start :named) . :variable) (:main . error)))))
              ht)))
     (!make-loop-universe
       :keywords (maketable keywords)
       :for-keywords (maketable for-keywords)
       :iteration-keywords (maketable iteration-keywords)
-      :path-keywords (maketable path-keywords))))
+      :path-keywords (maketable path-keywords)
+      :transition-table (make-transition-table))))
 
 ;;;; SETQ hackery, including destructuring ("DESETQ")
 
@@ -422,6 +439,9 @@ code to be loaded.
 ;;; This is (source-code *loop*) as of the "last" clause. It is used
 ;;; primarily for generating error messages (see loop-error, loop-warn).
   (source-context nil)
+
+;;; The current parse state of the LOOP parser,
+  (parse-state :start :type (member :start :named :variable :main))
 
 ;;; list of names for the LOOP, supplied by the NAMED clause
   (names nil)
@@ -654,6 +674,16 @@ code to be loaded.
         (unless (names loop) (return nil)))
       answer)))
 
+(defun loop-process-transition (loop keyword &aux (universe (universe loop)))
+  (let ((current (parse-state loop))
+        (transitions (loop-lookup-keyword keyword (loop-universe-transition-table universe))))
+    (flet ((test (x) (or (eql x t) (eql x current) (and (listp x) (member current x)))))
+      (let ((transition (cdr (find-if #'test transitions :key #'car))))
+        (case transition
+          ((nil))
+          (error (loop-error "keyword ~S not allowed in state ~S" keyword current))
+          (t (setf (parse-state loop) transition)))))))
+
 (defun loop-iteration-driver (loop &aux (universe (universe loop)))
   (do ()
       ((null (source-code loop)))
@@ -667,10 +697,12 @@ code to be loaded.
                                                  (loop-universe-keywords universe)))
                       ;; It's a "miscellaneous" toplevel LOOP keyword (DO,
                       ;; COLLECT, NAMED, etc.)
+                      (loop-process-transition loop keyword)
                       (apply (symbol-function (first tem)) (rest tem)))
                      ((setq tem
                             (loop-lookup-keyword keyword
                                                  (loop-universe-iteration-keywords universe)))
+                      (loop-process-transition loop keyword)
                       (loop-hack-iteration tem))
                      ((loop-tmember keyword '(and else))
                       ;; The alternative is to ignore it, i.e. let it go
@@ -1855,9 +1887,9 @@ code to be loaded.
 
 (sb-ext:define-load-time-global *loop-ansi-universe*
   (let ((w (!make-standard-loop-universe
-             :keywords '((named (loop-do-named))
-                         (initially (loop-do-initially))
-                         (finally (loop-do-finally))
+             :keywords '((named (loop-do-named) ((:start . :named) (t . error)))
+                         (initially (loop-do-initially) (((:start :named) . :variable)))
+                         (finally (loop-do-finally) (((:start :named) . :variable)))
                          (do (loop-do-do))
                          (doing (loop-do-do))
                          (return (loop-do-return))
@@ -1890,7 +1922,7 @@ code to be loaded.
                          (when (loop-do-if when nil))   ; Normal, do when
                          (if (loop-do-if if nil))       ; synonymous
                          (unless (loop-do-if unless t)) ; Negate test on when
-                         (with (loop-do-with))
+                         (with (loop-do-with) (((:start :named) . :variable) (:main . error)))
                          (repeat (loop-do-repeat)))
              :for-keywords '((= (loop-ansi-for-equals))
                              (across (loop-for-across))
