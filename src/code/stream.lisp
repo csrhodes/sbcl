@@ -1289,37 +1289,139 @@
        (aver (= numbytes (+ start bytes-read)))
        numbytes))))
 
+(defstruct (vector-input-stream
+            (:include ansi-stream)
+            (:constructor nil)
+            (:copier nil)
+            (:predicate nil))
+  (index nil :type index)
+  (limit nil :type index :read-only t)
+  (vector nil :type (simple-array * 1) :read-only t)
+  (start nil :type index :read-only t))
+
+(declaim (inline vector-in-set-file-position))
+(defun vector-in-set-file-position (stream arg1)
+  (setf (vector-input-stream-index stream)
+        (case arg1
+          (:start (vector-input-stream-start stream))
+          (:end (vector-input-stream-limit stream))
+          ;; We allow moving position beyond EOF. Errors happen
+          ;; on read, not move.
+          (t (+ (vector-input-stream-start stream) arg1)))))
+
+(declaim (inline vector-in-get-file-position))
+(defun vector-in-get-file-position (stream)
+  (- (vector-input-stream-index stream)
+     (vector-input-stream-start stream)))
+
+(declaim (inline vector-in-listen))
+(defun vector-in-listen (stream)
+  (if (< (vector-input-stream-index stream)
+         (vector-input-stream-limit stream))
+      t
+      :eof))
+
+;;;; OCTETS-INPUT-STREAM
+
+(defstruct (octets-input-stream
+            (:include vector-input-stream
+             (vector nil :type (simple-array (unsigned-byte 8) 1) :read-only t)
+             (bin #'octets-in-bin)
+             (n-bin #'octets-in-n-bin)
+             (misc #'octets-in-misc))
+            (:constructor nil)
+            (:copier nil)
+            (:predicate nil)))
+(declaim (freeze-type octets-input-stream))
+
+(declaim (inline octets-input-stream-octets))
+(defun octets-input-stream-octets (stream)
+  (octets-input-stream-vector stream))
+
+(defun octets-in-bin (stream eof-error-p eof-value)
+  (declare (type octets-input-stream stream))
+  (let ((index (octets-input-stream-index stream))
+        (octets (octets-input-stream-octets stream)))
+    (cond
+      ((>= index (octets-input-stream-limit stream))
+       (eof-or-lose stream eof-error-p eof-value))
+      (t
+       (setf (octets-input-stream-index stream) (1+ index))
+       (aref octets index)))))
+
+(defun octets-in-n-bin (stream buffer sbuffer start numbytes eof-error-p)
+  (declare (type octets-input-stream stream))
+  (declare (ignore sbuffer))
+  (let ((index (octets-input-stream-index stream))
+        (octets (octets-input-stream-octets stream))
+        (limit (octets-input-stream-limit stream)))
+    (cond
+      ((>= index limit)
+       (eof-or-lose stream eof-error-p 0))
+      (t
+       (let ((count (min (- limit index) numbytes)))
+         (%byte-blt octets index buffer start count)
+         (setf (octets-input-stream-index stream) (+ index count))
+         count)))))
+
+(defun octets-in-misc (stream operation arg1)
+  (declare (type octets-input-stream stream))
+  (stream-misc-case (operation :default nil)
+    (:set-file-position (vector-in-set-file-position stream arg1))
+    (:get-file-position (vector-in-get-file-position stream))
+    (:close (set-closed-flame stream))
+    (:listen (vector-in-listen stream))
+    (:element-type '(unsigned-byte 8))
+    (:element-mode 'unsigned-byte)))
+
+(defun %init-octets-input-stream (stream vector &optional (start 0) end)
+  (macrolet ((initforms ()
+               `(progn
+                 ,@(mapcar (lambda (dsd)
+                             ;; good thing we have no raw slots in stream structures
+                             `(%instance-set stream ,(dsd-index dsd)
+                                   ,(case (dsd-name dsd)
+                                     ((index start) 'start)
+                                     (limit 'end)
+                                     (vector 'octets)
+                                     (t (dsd-default dsd)))))
+                           (dd-slots
+                            (find-defstruct-description 'octets-input-stream))))))
+    (with-array-data ((octets vector :offset-var offset)
+                      (start start)
+                      (end end)
+                      :check-fill-pointer t)
+      (initforms)
+      (values (truly-the octets-input-stream stream) offset))))
+
+(defun make-octets-input-stream (vector &optional (start 0) end)
+  "Return an input stream which will supply the octets of VECTOR between
+  START and END in order."
+  (macrolet ((make () `(%make-structure-instance
+                        ,(find-defstruct-description 'octets-input-stream)
+                        nil)))
+    (values (%init-octets-input-stream (make) vector start end))))
+
 ;;;; STRING-INPUT-STREAM stuff
 
 (defstruct (string-input-stream
-             (:include ansi-stream (misc #'string-in-misc))
-             (:constructor nil)
-             (:copier nil)
-             (:predicate nil))
-  ;; Indices into STRING
-  (index nil :type index)
-  (limit nil :type index :read-only t)
-  ;; Backing string after following displaced array chain
-  (string nil :type simple-string :read-only t)
-  ;; So that we know what string index FILE-POSITION 0 correponds to
-  (start nil :type index :read-only t))
-
+            (:include vector-input-stream
+             (vector nil :type simple-string :read-only t)
+             (misc #'string-in-misc))
+            (:constructor nil)
+            (:copier nil)
+            (:predicate nil)))
 (declaim (freeze-type string-input-stream))
+
+(declaim (inline string-input-stream-string))
+(defun string-input-stream-string (s)
+  (string-input-stream-vector s))
 
 (defun string-in-misc (stream operation arg1)
   (declare (type string-input-stream stream))
   (stream-misc-case (operation :default nil)
-    (:set-file-position
-         (setf (string-input-stream-index stream)
-               (case arg1
-                 (:start (string-input-stream-start stream))
-                 (:end (string-input-stream-limit stream))
-                 ;; We allow moving position beyond EOF. Errors happen
-                 ;; on read, not move.
-                 (t (+ (string-input-stream-start stream) arg1)))))
-    (:get-file-position
-         (- (string-input-stream-index stream)
-            (string-input-stream-start stream)))
+    (:set-file-position (vector-in-set-file-position stream arg1))
+    (:get-file-position (vector-in-get-file-position stream))
     ;; According to ANSI: "Should signal an error of type type-error
     ;; if stream is not a stream associated with a file."
     ;; This is checked by FILE-LENGTH, so no need to do it here either.
@@ -1329,9 +1431,7 @@
                    (max (1- (string-input-stream-index stream))
                         (string-input-stream-start stream))))
     (:close (set-closed-flame stream))
-    (:listen (if (< (string-input-stream-index stream)
-                    (string-input-stream-limit stream))
-                 t :eof))
+    (:listen (vector-in-listen stream))
     (:element-type (array-element-type (string-input-stream-string stream)))
     (:element-mode 'character)))
 
@@ -1348,7 +1448,7 @@
                                    ,(case (dsd-name dsd)
                                      ((index start) 'start)
                                      (limit 'end)
-                                     (string 'simple-string)
+                                     (vector 'simple-string)
                                      (in 'input-routine)
                                      (t (dsd-default dsd)))))
                            (dd-slots

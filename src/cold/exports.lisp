@@ -1099,6 +1099,12 @@ like *STACK-TOP-HINT* and unsupported stuff like *TRACED-FUN-LIST*.")
    "PARSE-NATIVE-NAMESTRING"
    "NATIVE-NAMESTRING"
 
+   ;; streams
+
+   "MAKE-OCTETS-INPUT-STREAM"
+   "OCTETS-INPUT-STREAM"
+   "WITH-INPUT-FROM-OCTETS"
+
    ;; external-format support
 
    "OCTETS-TO-STRING" "STRING-TO-OCTETS"
