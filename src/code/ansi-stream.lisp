@@ -280,24 +280,13 @@
   (def with-input-from-string string string-input-stream %init-string-input-stream)
   (def with-input-from-octets octets octets-input-stream %init-octets-input-stream))
 
-(defstruct (string-output-stream
-            (:include ansi-stream)
-            (:constructor nil)
-            (:copier nil)
-            (:predicate nil))
-  ;; Function to perform a piece of the SOUT operation
-  ;; Args: (stream buffer string pointer start stop)
-  (sout-aux nil :type (sfunction (t t t t t t) t) :read-only t)
-  ;; The string we throw stuff in.
-  ;; In terms of representation of this buffer, we could do something like
-  ;; always use UTF-8, or use a custom encoding that has a bit indicating
-  ;; whether the next bits are base-char or character, and then just the
-  ;; bits of that character using either 7 bits (filling out 1 byte)
-  ;; or 21 bits (consuming 3 or 4 bytes total) on a per-character basis.
-  (buffer nil :type (or simple-base-string simple-character-string))
-  ;; Whether any non-base character has been written.
-  ;; This is :IGNORE for base-char output streams.
-  (unicode-p :ignore)
+(defstruct (vector-output-stream
+             (:include ansi-stream)
+             (:constructor nil)
+             (:copier nil)
+             (:predicate nil))
+  ;; The vector we throw stuff in
+  (buffer nil :type (simple-array * 1))
   ;; Chains of buffers to use
   (prev nil :type list)
   (next nil :type list)
@@ -309,13 +298,47 @@
   ;; and index here, so the greater of index and this is always the
   ;; end of the stream.
   (index-cache 0 :type index)
-  ;; Pseudo-actual element type. We no longer store the as-requested type.
-  ;; (If the value is *, we return CHARACTER on inquiry.)
-  (element-type nil :read-only t
-                    :type (member #+sb-unicode *
-                                  #+sb-unicode character
-                                  base-char nil)))
+  (element-type nil :read-only t))
+
+(defstruct (octets-output-stream
+             (:include vector-output-stream
+                       (buffer nil :type (simple-array (unsigned-byte 8) (*)))
+                       (element-type 'unsigned-byte :read-only t))
+             (:constructor nil)
+             (:copier nil)
+             (:predicate nil)))
+(declaim (freeze-type octets-output-stream))
+
+(defstruct (string-output-stream
+             (:include vector-output-stream
+               ;; In terms of representation of this buffer, we could
+               ;; do something like always use UTF-8, or use a custom
+               ;; encoding that has a bit indicating whether the next
+               ;; bits are base-char or character, and then just the
+               ;; bits of that character using either 7 bits (filling
+               ;; out 1 byte) or 21 bits (consuming 3 or 4 bytes
+               ;; total) on a per-character basis.
+               (buffer nil :type (or simple-base-string simple-character-string))
+               ;; Pseudo-actual element type. We no longer store the
+               ;; as-requested type.  (If the value is *, we return
+               ;; CHARACTER on inquiry.)
+               (element-type nil :read-only t
+                                 :type (member #+sb-unicode *
+                                               #+sb-unicode character
+                                               base-char nil)))
+             (:constructor nil)
+             (:copier nil)
+             (:predicate nil))
+  ;; Function to perform a piece of the SOUT operation
+  ;; Args: (stream buffer string pointer start stop)
+  (sout-aux nil :type (sfunction (t t t t t t) t) :read-only t)
+  ;; Whether any non-base character has been written.
+  ;; This is :IGNORE for base-char output streams.
+  (unicode-p :ignore))
 (declaim (freeze-type string-output-stream))
+
+(defmacro %allocate-octets-ostream ()
+  `(%make-structure-instance ,(find-defstruct-description 'octets-output-stream) nil))
 
 (defmacro %allocate-string-ostream ()
   `(%make-structure-instance ,(find-defstruct-description 'string-output-stream) nil))

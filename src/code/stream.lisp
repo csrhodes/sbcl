@@ -1495,7 +1495,222 @@
     ;; kill the secondary value
     (values (%init-string-input-stream (make) string start end))))
 
-;;;; STRING-OUTPUT-STREAM stuff
+;;;; VECTOR-OUTPUT-STREAM routines (used for STRING-OUTPUT-STREAM and
+;;;; OCTETS-OUTPUT-STREAM)
+
+;;; Pushes the current segment onto the prev-list, and either pops
+;;; or allocates a new one.
+(defun vector-output-stream-new-buffer (stream size)
+  (declare (index size))
+  (declare (vector-output-stream stream))
+  (push (vector-output-stream-buffer stream)
+        (vector-output-stream-prev stream))
+  (setf (vector-output-stream-buffer stream)
+        (or (pop (vector-output-stream-next stream))
+            ;; There may be a fencepost bug lurking here but I don't think so, and in any case
+            ;; this errs on the side of caution.  Given the already dubious state of things
+            ;; with regard to meaning of the INDEX type - see comment in src/code/early-extensions
+            ;; above its DEF!TYPE - it seems like this can't be making things any worse to
+            ;; constrain the chars in a vector-output-stream to be even _smaller_ than INDEX.
+            (let ((maximum-length (1- array-dimension-limit))
+                  (current-index (vector-output-stream-index stream)))
+              (when (> (+ current-index size) maximum-length)
+                (setq size (- maximum-length current-index)))
+              (when (<= size 0)
+                (error "vector-output-stream maximum length exceeded"))
+              (case (vector-output-stream-element-type stream)
+                ((base-char nil) (make-array size :element-type 'base-char))
+                ;; FIXME: hm, "unsigned-byte"
+                (unsigned-byte (make-array size :element-type '(unsigned-byte 8)))
+                (t (make-array size :element-type 'character)))))))
+
+;;; Moves to the end of the next segment or the current one if there are
+;;; no more segments. Returns true as long as there are next segments.
+(defun vector-output-stream-next-buffer (stream)
+  (declare (vector-output-stream stream))
+  (let* ((old (vector-output-stream-buffer stream))
+         (new (pop (vector-output-stream-next stream)))
+         (old-size (length old))
+         (skipped (- old-size (vector-output-stream-pointer stream))))
+    (cond (new
+           (let ((new-size (length new)))
+             (push old (vector-output-stream-prev stream))
+             (setf (vector-output-stream-buffer stream) new
+                   (vector-output-stream-pointer stream) new-size)
+             (incf (vector-output-stream-index stream) (+ skipped new-size)))
+           t)
+          (t
+           (setf (vector-output-stream-pointer stream) old-size)
+           (incf (vector-output-stream-index stream) skipped)
+           nil))))
+
+;;; Moves to the start of the previous segment or the current one if there
+;;; are no more segments. Returns true as long as there are prev segments.
+(defun vector-output-stream-prev-buffer (stream)
+  (declare (vector-output-stream stream))
+  (let ((old (vector-output-stream-buffer stream))
+        (new (pop (vector-output-stream-prev stream)))
+        (skipped (vector-output-stream-pointer stream)))
+    (cond (new
+           (push old (vector-output-stream-next stream))
+           (setf (vector-output-stream-buffer stream) new
+                 (vector-output-stream-pointer stream) 0)
+           (decf (vector-output-stream-index stream) (+ skipped (length new)))
+           t)
+          (t
+           (setf (vector-output-stream-pointer stream) 0)
+           (decf (vector-output-stream-index stream) skipped)
+           nil))))
+
+;;; Factored out of the -misc methods due to size.
+(defun set-vector-output-stream-file-position (stream pos)
+  (let* ((index (vector-output-stream-index stream))
+         (end (max index (vector-output-stream-index-cache stream))))
+    (declare (index index end))
+    (setf (vector-output-stream-index-cache stream) end)
+    (cond ((eq :start pos)
+           (loop while (vector-output-stream-prev-buffer stream)))
+          ((eq :end pos)
+           (loop while (vector-output-stream-next-buffer stream))
+           (let ((over (- (vector-output-stream-index stream) end)))
+             (decf (vector-output-stream-pointer stream) over))
+           (setf (vector-output-stream-index stream) end))
+          ((< pos index)
+           ;; Set INDEX to the start of the current buffer
+           (decf (vector-output-stream-index stream) (vector-output-stream-pointer stream))
+           (setf index (vector-output-stream-index stream))
+           (setf (vector-output-stream-pointer stream) 0)
+           (loop while (< pos index)
+                 do (vector-output-stream-prev-buffer stream)
+                 (setf index (vector-output-stream-index stream)))
+           (let ((step (- pos index)))
+             (incf (vector-output-stream-pointer stream) step)
+             (setf (vector-output-stream-index stream) pos)))
+          ((> pos index)
+           ;; We allow moving beyond the end of stream, implicitly
+           ;; extending the output stream.
+           (let ((next (vector-output-stream-buffer stream)))
+             ;; Set INDEX to the end of the current buffer.
+             (incf index (- (length next) (vector-output-stream-pointer stream)))
+             (loop while (and next (> pos index))
+                   do (setf next (vector-output-stream-next-buffer stream)
+                            ;; Update after -next-buffer, INDEX is kept pointing at
+                            ;; the end of the current buffer.
+                            index (vector-output-stream-index stream))))
+           ;; Allocate new buffer if needed, or step back to
+           ;; the desired index and set pointer and index
+           ;; correctly.
+           (let ((diff (- pos index)))
+             (if (plusp diff)
+                 (let* ((new (vector-output-stream-new-buffer stream diff))
+                        (size (length new)))
+                   (aver (= pos (+ index size)))
+                   (setf (vector-output-stream-pointer stream) size
+                         (vector-output-stream-index stream) pos))
+                 (let ((size (length (vector-output-stream-buffer stream))))
+                   (setf (vector-output-stream-pointer stream) (+ size diff)
+                         (vector-output-stream-index stream) pos))))))))
+
+;;;; OCTETS-OUTPUT-STREAM
+(defun %init-octets-output-stream (stream &aux (buffer (make-array 64 :element-type '(unsigned-byte 8))))
+  (declare (optimize speed (sb-c::verify-arg-count 0)))
+  (macrolet ((initforms ()
+               `(progn
+                  ,@(mapcar (lambda (dsd)
+                              `(%instance-set stream ,(dsd-index dsd)
+                                              ,(case (dsd-name dsd)
+                                                 (buffer (dsd-name dsd))
+                                                 (bout '#'bout)
+                                                 (misc '#'octets-out-misc)
+                                                 (t (dsd-default dsd)))))
+                            (dd-slots (find-defstruct-description 'octets-output-stream))))))
+    (labels ((bout (stream octet)
+               (let ((pointer (octets-output-stream-pointer
+                               (truly-the octets-output-stream stream)))
+                     (buffer (truly-the (simple-array (unsigned-byte 8) (*))
+                                        (octets-output-stream-buffer stream)))
+                     (index (octets-output-stream-index stream)))
+                 (declare (optimize (sb-c:insert-array-bounds-checks 0)))
+                 (when (= pointer (length buffer))
+                   ;; The usual doubling technique: the new buffer shall hold as many
+                   ;; octets as were already emplaced.
+                   (setf buffer (vector-output-stream-new-buffer stream index)
+                         pointer 0))
+                 (setf (octets-output-stream-pointer stream) (truly-the index (1+ pointer)))
+                 (setf (octets-output-stream-index stream) (truly-the index (1+ index)))
+                 ;; return the byte
+                 (setf (aref (truly-the (simple-array (unsigned-byte 8) (*)) buffer) pointer)
+                       octet))))
+      (initforms)
+      (truly-the octets-output-stream stream))))
+
+(defun %make-octets-output-stream ()
+  (%init-octets-output-stream (%allocate-octets-ostream)))
+
+(defun make-octets-output-stream (&key)
+  (%make-octets-output-stream))
+
+(defun octets-out-misc (stream operation arg1)
+  (declare (optimize speed))
+  (stream-misc-case (operation :default nil)
+    (:set-file-position
+     (set-vector-output-stream-file-position stream arg1)
+     t)
+    (:get-file-position
+     (vector-output-stream-index stream))
+    (:close
+     (/noshow0 "/string-out-misc close")
+     (set-closed-flame stream))
+    (:element-type
+     '(unsigned-byte 8))
+    (:element-mode 'unsigned-byte)))
+
+(defun get-output-stream-octets (stream)
+  (declare (type octets-output-stream stream))
+  (let* ((length (max (octets-output-stream-index stream)
+                      (octets-output-stream-index-cache stream)))
+         (prev (nreverse (octets-output-stream-prev stream)))
+         (this (octets-output-stream-buffer stream))
+         (next (octets-output-stream-next stream))
+         (result (make-array length :element-type '(unsigned-byte 8))))
+
+    (setf (octets-output-stream-index stream) 0
+          (octets-output-stream-index-cache stream) 0
+          (octets-output-stream-pointer stream) 0
+          ;; throw them away for simplicity's sake: this way the rest of the
+          ;; implementation can assume that the greater of INDEX and INDEX-CACHE
+          ;; is always within the last buffer.
+          (octets-output-stream-prev stream) nil
+          (octets-output-stream-next stream) nil)
+
+    (flet ((copy (fun)
+             (let ((start 0)) ; index into RESULT
+               (declare (index start))
+               (dolist (buffer prev)
+                 ;; It doesn't look as though we should have to pass RESULT
+                 ;; in to FUN to avoid closure consing, but indeed we do.
+                 (funcall fun result buffer start)
+                 (incf start (length buffer)))
+               (funcall fun result this start)
+               (incf start (length this))
+               (dolist (buffer next)
+                 (funcall fun result buffer start)
+                 (incf start (length buffer))))))
+      (with-pinned-objects (result)
+        (with-alien ((memcpy (function system-area-pointer
+                                       system-area-pointer system-area-pointer unsigned)
+                             :extern))
+          (copy (lambda (result source start)
+                  (declare (index start))
+                  (let* ((nbytes (the index (min (- length start) (length source)))))
+                    (with-pinned-objects (source)
+                      (alien-funcall memcpy
+                                     (sap+ (vector-sap result) start)
+                                     (vector-sap source)
+                                     nbytes))))))))
+    result))
+
+;;;; specifically STRING-OUTPUT-STREAM stuff
 ;;;;
 ;;;; FIXME: This, like almost none of the stream code is particularly
 ;;;; interrupt or thread-safe. While it should not be possible to
@@ -1528,7 +1743,7 @@
                   (when (= pointer (length buffer))
                     ;; The usual doubling technique: the new buffer shall hold as many
                     ;; characters as were already emplaced.
-                    (setf buffer (string-output-stream-new-buffer stream index)
+                    (setf buffer (vector-output-stream-new-buffer stream index)
                           pointer 0))
                   (setf (string-output-stream-pointer stream) (truly-the index (1+ pointer)))
                   (setf (string-output-stream-index stream) (truly-the index (1+ index)))
@@ -1646,68 +1861,6 @@ benefit of the function GET-OUTPUT-STREAM-STRING."
           (t
            (error "~S is not a subtype of CHARACTER" element-type)))))
 
-;;; Pushes the current segment onto the prev-list, and either pops
-;;; or allocates a new one.
-(defun string-output-stream-new-buffer (stream size)
-  (declare (index size))
-  (declare (string-output-stream stream))
-  (push (string-output-stream-buffer stream)
-        (string-output-stream-prev stream))
-  (setf (string-output-stream-buffer stream)
-        (or (pop (string-output-stream-next stream))
-            ;; There may be a fencepost bug lurking here but I don't think so, and in any case
-            ;; this errs on the side of caution.  Given the already dubious state of things
-            ;; with regard to meaning of the INDEX type - see comment in src/code/early-extensions
-            ;; above its DEF!TYPE - it seems like this can't be making things any worse to
-            ;; constrain the chars in a string-output-stream to be even _smaller_ than INDEX.
-            (let ((maximum-string-length (1- array-dimension-limit))
-                  (current-index (string-output-stream-index stream)))
-              (when (> (+ current-index size) maximum-string-length)
-                (setq size (- maximum-string-length current-index)))
-              (when (<= size 0)
-                (error "string-output-stream maximum length exceeded"))
-              (if (member (string-output-stream-element-type stream) '(base-char nil))
-                  (make-array size :element-type 'base-char)
-                  (make-array size :element-type 'character))))))
-
-;;; Moves to the end of the next segment or the current one if there are
-;;; no more segments. Returns true as long as there are next segments.
-(defun string-output-stream-next-buffer (stream)
-  (declare (string-output-stream stream))
-  (let* ((old (string-output-stream-buffer stream))
-         (new (pop (string-output-stream-next stream)))
-         (old-size (length old))
-         (skipped (- old-size (string-output-stream-pointer stream))))
-    (cond (new
-           (let ((new-size (length new)))
-             (push old (string-output-stream-prev stream))
-             (setf (string-output-stream-buffer stream) new
-                   (string-output-stream-pointer stream) new-size)
-             (incf (string-output-stream-index stream) (+ skipped new-size)))
-           t)
-          (t
-           (setf (string-output-stream-pointer stream) old-size)
-           (incf (string-output-stream-index stream) skipped)
-           nil))))
-
-;;; Moves to the start of the previous segment or the current one if there
-;;; are no more segments. Returns true as long as there are prev segments.
-(defun string-output-stream-prev-buffer (stream)
-  (declare (string-output-stream stream))
-  (let ((old (string-output-stream-buffer stream))
-        (new (pop (string-output-stream-prev stream)))
-        (skipped (string-output-stream-pointer stream)))
-    (cond (new
-           (push old (string-output-stream-next stream))
-           (setf (string-output-stream-buffer stream) new
-                 (string-output-stream-pointer stream) 0)
-           (decf (string-output-stream-index stream) (+ skipped (length new)))
-           t)
-          (t
-           (setf (string-output-stream-pointer stream) 0)
-           (decf (string-output-stream-index stream) skipped)
-           nil))))
-
 (defun string-sout (stream string start end)
   (declare (explicit-check string)
            (type index start end))
@@ -1740,7 +1893,7 @@ benefit of the function GET-OUTPUT-STREAM-STRING."
                ;;  - WRITE-STRING with 2 characters setting INDEX=2, SPACE=61
                ;;  - another WRITE-STRING with 62 characters. 61 copied, 1 overflow.
                ;;  - then new BUFFER length is (MAX OVERFLOW INDEX) = 2
-               buffer (string-output-stream-new-buffer
+               buffer (vector-output-stream-new-buffer
                        stream (max overflow (string-output-stream-index stream)))
                pointer 0
                space (length buffer)
@@ -1751,55 +1904,6 @@ benefit of the function GET-OUTPUT-STREAM-STRING."
                overflow (- length space))
          (go :more)))
     (incf (string-output-stream-index stream) full-length)))
-
-;;; Factored out of the -misc method due to size.
-(defun set-string-output-stream-file-position (stream pos)
-  (let* ((index (string-output-stream-index stream))
-         (end (max index (string-output-stream-index-cache stream))))
-    (declare (index index end))
-    (setf (string-output-stream-index-cache stream) end)
-    (cond ((eq :start pos)
-           (loop while (string-output-stream-prev-buffer stream)))
-          ((eq :end pos)
-           (loop while (string-output-stream-next-buffer stream))
-           (let ((over (- (string-output-stream-index stream) end)))
-             (decf (string-output-stream-pointer stream) over))
-           (setf (string-output-stream-index stream) end))
-          ((< pos index)
-           ;; Set INDEX to the start of the current buffer
-           (decf (string-output-stream-index stream) (string-output-stream-pointer stream))
-           (setf index (string-output-stream-index stream))
-           (setf (string-output-stream-pointer stream) 0)
-           (loop while (< pos index)
-                 do (string-output-stream-prev-buffer stream)
-                 (setf index (string-output-stream-index stream)))
-           (let ((step (- pos index)))
-             (incf (string-output-stream-pointer stream) step)
-             (setf (string-output-stream-index stream) pos)))
-          ((> pos index)
-           ;; We allow moving beyond the end of stream, implicitly
-           ;; extending the output stream.
-           (let ((next (string-output-stream-buffer stream)))
-             ;; Set INDEX to the end of the current buffer.
-             (incf index (- (length next) (string-output-stream-pointer stream)))
-             (loop while (and next (> pos index))
-                   do (setf next (string-output-stream-next-buffer stream)
-                            ;; Update after -next-buffer, INDEX is kept pointing at
-                            ;; the end of the current buffer.
-                            index (string-output-stream-index stream))))
-           ;; Allocate new buffer if needed, or step back to
-           ;; the desired index and set pointer and index
-           ;; correctly.
-           (let ((diff (- pos index)))
-             (if (plusp diff)
-                 (let* ((new (string-output-stream-new-buffer stream diff))
-                        (size (length new)))
-                   (aver (= pos (+ index size)))
-                   (setf (string-output-stream-pointer stream) size
-                         (string-output-stream-index stream) pos))
-                 (let ((size (length (string-output-stream-buffer stream))))
-                   (setf (string-output-stream-pointer stream) (+ size diff)
-                         (string-output-stream-index stream) pos))))))))
 
 (defun string-out-misc (stream operation arg1)
   (declare (optimize speed))
@@ -1829,15 +1933,15 @@ benefit of the function GET-OUTPUT-STREAM-STRING."
         (/noshow0 "/string-out-misc charpos next")
         (go :next))))
     (:set-file-position
-     (set-string-output-stream-file-position stream arg1)
+     (set-vector-output-stream-file-position stream arg1)
      t)
     (:get-file-position
-     (string-output-stream-index stream))
+     (vector-output-stream-index stream))
     (:close
      (/noshow0 "/string-out-misc close")
      (set-closed-flame stream))
     (:element-type
-     (let ((et (string-output-stream-element-type stream)))
+     (let ((et (vector-output-stream-element-type stream)))
        ;; Always return a valid type-specifier
        (if (eq et '*) 'character et)))
     (:element-mode 'character)))
