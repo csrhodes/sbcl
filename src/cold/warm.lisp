@@ -107,7 +107,10 @@ sb-kernel::(rplaca (last *handler-clusters*) (car **initial-handler-clusters**))
               (let ((result (if (eq (first result) 'sb-kernel::&values)
                                 (rest result)
                                 result))
-                    (actual (multiple-value-list (apply fun (sb-int:ensure-list args)))))
+                    (actual (if (eql fun 'read-from-string)
+                                (let ((*read-default-float-format* (car args)))
+                                  (multiple-value-list (apply fun (sb-int:ensure-list (cdr args)))))
+                                (multiple-value-list (apply fun (sb-int:ensure-list args))))))
                 (unless (equalp actual result)
                   (#+sb-devel-xfloat cerror #+sb-devel-xfloat ""
                    #-sb-devel-xfloat format #-sb-devel-xfloat t
