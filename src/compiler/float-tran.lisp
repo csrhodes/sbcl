@@ -2017,7 +2017,6 @@
 ;;; An example that we can't cross-compile: CTYPE-OF-NUMBER tries to compute
 ;;; low/high bounds so that it can return (COMPLEX (SINGLE-FLOAT <LOW> <HIGH>))
 ;;; but we haven't taught the MIN,MAX interceptors how to operate on infinity.
-#+nil
 (defun more-folding ()
   (values (complex single-float-positive-infinity single-float-positive-infinity)
           (complex single-float-negative-infinity single-float-positive-infinity)
