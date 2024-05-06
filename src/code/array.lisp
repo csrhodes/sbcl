@@ -11,8 +11,7 @@
 
 (in-package "SB-VM")
 
-(declaim (inline adjustable-array-p
-                 array-displacement))
+(declaim (inline array-displacement))
 
 ;;;; miscellaneous accessor functions
 
@@ -560,6 +559,9 @@
                                 (simple simple-array-widetag)
                                 (t complex-array-widetag))
                           array-rank)))
+             (if adjustable
+                 (logior-array-flags array +array-adjustable-p+)
+                 (reset-array-flags array +array-adjustable-p+))
              (cond (fill-pointer
                     (logior-array-flags array +array-fill-pointer-p+)
                     (setf (%array-fill-pointer array)
@@ -1113,15 +1115,13 @@ of specialized arrays is supported."
       (values (%array-data array) (%array-displacement array))
       (values nil 0)))
 
+(setf (info :function :predicate-truth-constraint 'adjustable-array-p)
+      '(and array (not simple-array)))
 (defun adjustable-array-p (array)
   "Return T if and only if calling ADJUST-ARRAY on ARRAY will return
    the identical object."
-  (declare (array array))
-  ;; Note that this appears not to be a fundamental limitation.
-  ;; non-vector SIMPLE-ARRAYs are in fact capable of being adjusted,
-  ;; but in practice we test using ADJUSTABLE-ARRAY-P in ADJUST-ARRAY.
-  ;; -- CSR, 2004-03-01.
-  (not (typep array 'simple-array)))
+  (declare (type array array))
+  (adjustable-array-p array))
 
 ;;;; fill pointer frobbing stuff
 
@@ -1367,34 +1367,39 @@ of specialized arrays is supported."
                         (when (and element-p (> new-total-size old-length))
                           (fill data initial-element :start old-length))
                         data))))
-             (if (adjustable-array-p array)
-                 (set-array-header array new-data new-total-size new-fill-pointer
-                                   0 dimensions nil nil)
-                 new-data)))))
+             (cond
+               ((adjustable-array-p array)
+                (set-array-header array new-data new-total-size new-fill-pointer
+                                  0 dimensions nil nil))
+               (new-fill-pointer
+                (let ((result (make-array-header (%complex-vector-widetag widetag) 1)))
+                  (set-array-header result new-data new-total-size new-fill-pointer
+                                    0 dimensions nil t)))
+               (t new-data))))))
       (t
-           (let ((old-total-size (%array-available-elements array)))
-             (with-array-data ((old-data array) (old-start) (old-end old-total-size))
-               (declare (ignore old-end))
-               (let ((new-data (if (or (and (array-header-p array)
-                                            (%array-displaced-p array))
-                                       (> new-total-size old-total-size)
-                                       (not (adjustable-array-p array)))
-                                   (data-vector-from-inits dimensions new-total-size widetag
-                                                           n-bits-shift initialize initial-data)
-                                   old-data)))
-                 (if (or (zerop old-total-size) (zerop new-total-size))
-                     (when element-p (fill new-data initial-element))
-                     (zap-array-data old-data (array-dimensions array)
-                                     old-start
-                                     new-data dimensions new-total-size
-                                     element-type initial-element
-                                     element-p))
-                 (if (adjustable-array-p array)
-                     (set-array-header array new-data new-total-size
-                                       nil 0 dimensions nil nil)
-                     (let ((new-array (make-array-header simple-array-widetag rank)))
-                       (set-array-header new-array new-data new-total-size
-                                         nil 0 dimensions nil t))))))))))
+       (let ((old-total-size (%array-available-elements array)))
+         (with-array-data ((old-data array) (old-start) (old-end old-total-size))
+           (declare (ignore old-end))
+           (let ((new-data (if (or (and (array-header-p array)
+                                        (%array-displaced-p array))
+                                   (> new-total-size old-total-size)
+                                   (not (adjustable-array-p array)))
+                               (data-vector-from-inits dimensions new-total-size widetag
+                                                       n-bits-shift initialize initial-data)
+                               old-data)))
+             (if (or (zerop old-total-size) (zerop new-total-size))
+                 (when element-p (fill new-data initial-element))
+                 (zap-array-data old-data (array-dimensions array)
+                                 old-start
+                                 new-data dimensions new-total-size
+                                 element-type initial-element
+                                 element-p))
+             (if (adjustable-array-p array)
+                 (set-array-header array new-data new-total-size
+                                   nil 0 dimensions nil nil)
+                 (let ((new-array (make-array-header simple-array-widetag rank)))
+                   (set-array-header new-array new-data new-total-size
+                                     nil 0 dimensions nil t))))))))))
 
 ;;; Destructively alter VECTOR, changing its length to NEW-LENGTH,
 ;;; which must be less than or equal to its current length. This can

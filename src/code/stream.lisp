@@ -2217,7 +2217,7 @@ benefit of the function GET-OUTPUT-STREAM-STRING."
              (:end (array-total-size buffer))
              ;; We allow moving beyond the end of string if the
              ;; string is adjustable.
-             (t (when (>= arg1 (array-total-size buffer))
+             (t (when (> arg1 (array-total-size buffer))
                   (if (adjustable-array-p buffer)
                       (adjust-array buffer arg1)
                       (error "Cannot move FILE-POSITION beyond the end ~

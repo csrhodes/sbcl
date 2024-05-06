@@ -470,8 +470,8 @@
 
 (with-test (:name (adjust-array :fill-pointer))
   (let ((array (make-array 10 :fill-pointer t :initial-element 0)))
-    (assert (= (fill-pointer (adjust-array array 5 :fill-pointer 2))
-               2))))
+    (assert (= (fill-pointer array) 10))
+    (assert (= (fill-pointer (adjust-array array 5 :fill-pointer 2)) 2))))
 
 (with-test (:name (adjust-array :initial-element))
   (checked-compile-and-assert ()

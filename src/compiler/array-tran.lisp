@@ -958,6 +958,9 @@
                               (logior (if (eq has-fill-pointer t) ; (i.e. can't handle :maybe)
                                           (ash sb-vm:+array-fill-pointer-p+ sb-vm:array-flags-position)
                                           0)
+                                      (if (eq expressly-adjustable t)
+                                          (ash sb-vm:+array-adjustable-p+ sb-vm:array-flags-position)
+                                          0)
                                       (or (sb-vm:saetp-complex-typecode saetp)
                                           sb-vm:complex-vector-widetag)))
                             (array-header
@@ -973,6 +976,10 @@
                                                     nil ; displaced-p
                                                     nil ; displaced-from
                                                     %length)))) ; dimensions
+                       ;; FIXME: this looks like dead code?  (we
+                       ;; GIVE-UP-IR1-TRANSFORM if either
+                       ;; HAS-FILL-POINTER or EXPRESSLY-ADJUSTABLE is
+                       ;; :MAYBE)?
                        (if (eq has-fill-pointer :maybe)
                            `(let ((%array ,array-header))
                               (when fill-pointer
@@ -1270,9 +1277,6 @@
                     (fill vector (the ,(sb-vm:saetp-specifier saetp) initial-element)))
                   array)))))))
 
-;;; The list type restriction does not ensure that the result will be a
-;;; multi-dimensional array. But the lack of adjustable, fill-pointer,
-;;; and displaced-to keywords ensures that it will be simple.
 ;;; 2nd choice
 (deftransform make-array ((dims &key
                                 element-type initial-element initial-contents
@@ -1347,7 +1351,8 @@
                             ,(make-list rank :initial-element '*))))
                `(truly-the ,spec
                            (make-array-header* ,(if complex
-                                                    sb-vm:complex-array-widetag
+                                                    (logior sb-vm:complex-array-widetag
+                                                            (ash sb-vm:+array-adjustable-p+ sb-vm:array-flags-position))
                                                     sb-vm:simple-array-widetag)
                                                ;; fill-pointer
                                                ,total-size
@@ -1757,6 +1762,17 @@
              (delay-ir1-transform node :ir1-phases))
            `(test-header-data-bit array
                                   (ash sb-vm:+array-fill-pointer-p+ sb-vm:array-flags-data-position))))))
+
+(deftransform adjustable-array-p ((array) * * :node node)
+  (let* ((array-type (lvar-type array))
+         (complexp (conservative-array-type-complexp array-type)))
+    (cond
+      ((null complexp) nil)
+      (t
+       (when (eq complexp :maybe)
+         (delay-ir1-transform node :ir1-phases))
+       `(test-header-data-bit array
+                              (ash sb-vm:+array-adjustable-p+ sb-vm:array-flags-data-position))))))
 
 (define-source-transform fill-pointer (vector)
   (let ((vector-sym (gensym "VECTOR")))

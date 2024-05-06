@@ -568,18 +568,18 @@
 
 (with-test (:name :compile-time-defun-package-locked)
   ;; Make sure compile-time side-effects of DEFUN are protected against.
-  (let ((inline-lambda (function-lambda-expression #'adjustable-array-p)))
+  (let ((inline-lambda (function-lambda-expression #'array-displacement)))
     ;; Make sure it's actually inlined...
     (assert inline-lambda)
     (assert (eq :ok
                 (handler-case
-                    (ctu:file-compile `((defun adjustable-array-p (x) x)))
+                    (ctu:file-compile `((defun array-displacement (x) x)))
                   (sb-ext:symbol-package-locked-error (e)
-                    (when (eq 'adjustable-array-p
+                    (when (eq 'array-displacement
                               (sb-ext:package-locked-error-symbol e))
                       :ok)))))
     (assert (equal inline-lambda
-                   (function-lambda-expression #'adjustable-array-p)))))
+                   (function-lambda-expression #'array-displacement)))))
 
 (with-test (:name :compile-time-defclass-package-locked)
   ;; Compiling (DEFCLASS FTYPE ...) used to break SBCL, but the package

@@ -372,15 +372,17 @@
 
 ;;; Byte index:           3           2           1           0
 ;;;                 +-----------------------------------+-----------+
-;;;                 |  extra    |   flags   |    rank   |  widetag  |
+;;;                 |extra| gen |   flags   |    rank   |  widetag  |
 ;;;                 +-----------+-----------+-----------+-----------+
 ;;;                 |<---------- HEADER DATA ---------->|
 
 ;;; "extra" contain the following fields:
 ;;;  - generation number for immobile space (4 low bits of extra)
 ;;;  - VISITED bit (header bit index 30) for weak vectors, not used by Lisp
-;;;  - ALLOC-DYNAMIC-EXTENT (bit index 29), not used by lisp
+;;;  - ALLOC-DYNAMIC-EXTENT (bit index 29), not used by Lisp
 ;;;  - ALLOC-MIXED-REGION (bit index 28), not used by Lisp
+
+(defconstant +vector-visited-bit+ (ash 1 30))
 
 ;; When I finish implementing "highly unsafe" dynamic-extent allocation, allowing
 ;; uninitialized SIMPLE-VECTORs on the stack, _correct_ Lisp code won't be affected
@@ -417,7 +419,7 @@
 ;; often the print-name of a symbol, or was a literal in source code
 ;; and loaded from a fasl, or used in a few others situations
 ;; which warrant sharing.
-(defconstant +vector-shareable+        #x20)
+(defconstant +vector-shareable+        #x40)
 
 ;; A vector tagged as +VECTOR-SHAREABLE-NONSTD+ is logically readonly,
 ;; and *not* technically permitted by the standard to be shared.
@@ -426,10 +428,12 @@
 ;; into memory, where the requirement is that the machine code
 ;; reference "the same" object as appeared in source, but where,
 ;; nonetheless, opportunities for sharing abound.
-(defconstant +vector-shareable-nonstd+ #x10)
+(defconstant +vector-shareable-nonstd+ #x20)
 
+;; Whether this array is actually adjustable.
+(defconstant +array-adjustable-p+ #x10)
 ;; All arrays have a fill-pointer bit, but only vectors can have a 1 here.
-(defconstant +array-fill-pointer-p+    #x80)
+(defconstant +array-fill-pointer-p+    #x08)
 ;; All hash-table backing vectors are marked with this bit.
 ;; Essentially it informs GC that the vector has a high-water mark.
 (defconstant vector-hashing-flag       #x04)

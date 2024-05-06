@@ -2262,12 +2262,10 @@ expansion happened."
            :expected-type 'symbol
            :format-control "The SATISFIES predicate name is not a symbol: ~S"
            :format-arguments (list predicate-name)))
-  (case predicate-name
-   (adjustable-array-p (specifier-type '(and array (not simple-array))))
-   (t (let ((type (info :function :predicate-for predicate-name)))
-        (if type
-            (specifier-type type)
-            (%make-hairy-type whole))))))
+  (let ((type (info :function :predicate-for predicate-name)))
+    (if type
+        (specifier-type type)
+        (%make-hairy-type whole))))
 
 ;;;; negation types
 

@@ -271,10 +271,40 @@
       (assert (typep cond 'error)))
     (assert (equal "0b2d" str))))
 
-(with-test (:name (with-output-to-string file-position))
-  (let ((str (make-array 0
+(with-test (:name (with-output-to-string file-position :adjustable nil))
+  (let ((str (make-array 4
                          :element-type 'character
                          :adjustable nil
+                         :fill-pointer 0)))
+    (with-output-to-string (stream str)
+      (princ "abcd" stream)
+      (assert (= 4 (file-position stream)))
+      (assert (file-position stream :start))
+      (assert (= 0 (file-position stream)))
+      (princ "0" stream)
+      (assert (= 1 (file-position stream)))
+      (file-position stream 2)
+      (assert (= 2 (file-position stream)))
+      (princ "2" stream)
+      (assert (file-position stream :end))
+      (assert (= 4 (file-position stream)))
+      (assert-error (file-position stream 6))
+      (assert (file-position stream 2))
+      (assert (file-position stream :end))
+      (assert (= 4 (file-position stream)))
+      (assert (file-position stream 4))
+      ;; Avoid type mismatch warning when compiling of this file.
+      (let ((fun (checked-compile `(lambda (stream)
+                                     (file-position stream -1))
+                                  :allow-warnings t)))
+        (assert-error (funcall fun stream) type-error))
+      (assert-error (princ "!!" stream))
+      (assert (equal "0b2d" str)))))
+
+(with-test (:name (with-output-to-string file-position :adjustable t))
+  (let ((str (make-array 0
+                         :element-type 'character
+                         :adjustable t
                          :fill-pointer t)))
     (with-output-to-string (stream str)
       (princ "abcd" stream)
