@@ -1990,5 +1990,17 @@
   (let ((b (& (>> val 5) #xf)))
    (let ((a (>> (<< val 31) 28)))
     (^ a (aref tab b))))))")
+(#(0 5 6 7 8 F)
+ "(8 7 0 15 5 6)"
+ "((let ((tab #a((4) (unsigned-byte 8) 0 4 5 0)))
+  (let ((b (& val #x3)))
+   (let ((a (>> (<< val 28) 30)))
+    (^ a (aref tab b))))))")
+(#(5 6 7 8 F)
+ "(8 7 15 5 6)"
+ "((let ((tab #a((4) (unsigned-byte 8) 0 5 1 0)))
+  (let ((b (& val #x3)))
+   (let ((a (>> (<< val 28) 30)))
+    (^ a (aref tab b))))))")
 )
 ;; EOF
