@@ -2094,18 +2094,6 @@ benefit of the function GET-OUTPUT-STREAM-STRING."
 (deftype string-with-fill-pointer ()
   `(and string vector-with-fill-pointer))
 
-;;; FIXME: The stream should refuse to accept more characters than the given
-;;; string can hold without adjustment unless expressly adjustable.
-;;; This is a portability issue - the fact that all of our fill-pointer vectors
-;;; are implicitly adjustable is an implementation detail that should not be leaked.
-;;; For comparison, when evaluating:
-;;; (let ((s (make-array 5 :fill-pointer 0 :element-type 'base-char)))
-;;;   (with-output-to-string (stream s) (dotimes (i 6) (write-char #\a stream))) s)
-;;; CLISP:
-;;; *** - VECTOR-PUSH-EXTEND works only on adjustable arrays, not on "aaaaa"
-;;; CCL:
-;;; > Error: "aaaaa" is not an adjustable array.
-
 (defstruct (fill-pointer-output-stream
              (:include ansi-stream
                        (misc #'fill-pointer-misc))
@@ -2157,18 +2145,24 @@ benefit of the function GET-OUTPUT-STREAM-STRING."
         (let ((offset-current (+ start current)))
           (declare (fixnum offset-current))
           (if (= offset-current end)
-              (let* ((new-length (1+ (* current 2)))
-                     (new-workspace
-                      (ecase (array-element-type workspace)
-                        (character (make-string new-length
-                                                :element-type 'character))
-                        (base-char (make-string new-length
-                                                :element-type 'base-char)))))
-                (replace new-workspace workspace :start2 start :end2 offset-current)
-                (setf workspace new-workspace
-                      offset-current current)
-                (set-array-header buffer workspace new-length
-                                  current+1 0 new-length nil nil))
+              (if (adjustable-array-p buffer)
+                  (let* ((new-length (1+ (* current 2)))
+                         (new-workspace
+                          (ecase (array-element-type workspace)
+                            (character (make-string new-length
+                                                    :element-type 'character))
+                            (base-char (make-string new-length
+                                                    :element-type 'base-char)))))
+                    (replace new-workspace workspace :start2 start :end2 offset-current)
+                    (setf workspace new-workspace
+                          offset-current current)
+                    (set-array-header buffer workspace new-length
+                                      current+1 0 new-length nil nil))
+                  (error 'simple-type-error
+                         :format-control "~S is not an adjustable array"
+                         :format-arguments (list buffer)
+                         :datum buffer
+                         :expected-type '(satisfies adjustable-array-p)))
               (setf (fill-pointer buffer) current+1))
           (setf (char workspace offset-current) character)))))
   character)
@@ -2186,20 +2180,26 @@ benefit of the function GET-OUTPUT-STREAM-STRING."
               (offset-current (+ dst-start current)))
           (declare (fixnum offset-dst-end offset-current))
           (if (> offset-dst-end dst-length)
-              (let* ((new-length (+ (the fixnum (* current 2)) string-len))
-                     (new-workspace
-                      (ecase (array-element-type workspace)
-                        (character (make-string new-length
-                                                :element-type 'character))
-                        (base-char (make-string new-length
-                                                :element-type 'base-char)))))
-                (replace new-workspace workspace
-                         :start2 dst-start :end2 offset-current)
-                (setf workspace new-workspace
-                      offset-current current
-                      offset-dst-end dst-end)
-                (set-array-header buffer workspace new-length
-                                  dst-end 0 new-length nil nil))
+              (if (adjustable-array-p buffer)
+                  (let* ((new-length (+ (the fixnum (* current 2)) string-len))
+                         (new-workspace
+                          (ecase (array-element-type workspace)
+                            (character (make-string new-length
+                                                    :element-type 'character))
+                            (base-char (make-string new-length
+                                                    :element-type 'base-char)))))
+                    (replace new-workspace workspace
+                             :start2 dst-start :end2 offset-current)
+                    (setf workspace new-workspace
+                          offset-current current
+                          offset-dst-end dst-end)
+                    (set-array-header buffer workspace new-length
+                                      dst-end 0 new-length nil nil))
+                  (error 'simple-type-error
+                         :format-control "~S is not an adjustable array"
+                         :format-arguments (list buffer)
+                         :datum buffer
+                         :expected-type '(satisfies adjustable-array-p)))
               (setf (fill-pointer buffer) dst-end))
           (replace workspace string
                    :start1 offset-current :start2 start :end2 end)))
