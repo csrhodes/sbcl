@@ -351,10 +351,10 @@
         ;; Why do implementors take this to mean "evaluated and ignored?"
         ;; I would have figured it meant expansion-time ignored.
         `(dx-let ((,dummy (%make-structure-instance
-                           ,(find-defstruct-description 'fill-pointer-output-stream)
+                           ,(find-defstruct-description 'string-fill-pointer-output-stream)
                            nil)))
-           (let ((,var (truly-the fill-pointer-output-stream
-                                  (%init-fill-pointer-output-stream
+           (let ((,var (truly-the string-fill-pointer-output-stream
+                                  (%init-string-fill-pointer-output-stream
                                    ,dummy ,string ,element-type))))
              ;; http://www.lispworks.com/documentation/HyperSpec/Body/d_ignore.htm#ignore
              ;; "The stream variables established by ... with-output-to-string

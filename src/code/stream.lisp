@@ -2088,9 +2088,11 @@ benefit of the function GET-OUTPUT-STREAM-STRING."
   (and (vectorp x)
        (array-has-fill-pointer-p x)))
 
+(deftype vector-with-fill-pointer ()
+  `(satisfies vector-with-fill-pointer-p))
+
 (deftype string-with-fill-pointer ()
-  `(and (or (vector character) (vector base-char))
-        (satisfies vector-with-fill-pointer-p)))
+  `(and string vector-with-fill-pointer))
 
 ;;; FIXME: The stream should refuse to accept more characters than the given
 ;;; string can hold without adjustment unless expressly adjustable.
@@ -2105,19 +2107,26 @@ benefit of the function GET-OUTPUT-STREAM-STRING."
 ;;; > Error: "aaaaa" is not an adjustable array.
 
 (defstruct (fill-pointer-output-stream
-            (:include ansi-stream
-                      (cout #'fill-pointer-ouch)
-                      (sout #'fill-pointer-sout)
-                      (misc #'fill-pointer-misc))
-            (:constructor nil)
-            (:copier nil)
-            (:predicate nil))
-  ;; a string with a fill pointer where we stuff the stuff we write
-  (string (missing-arg) :type string-with-fill-pointer :read-only t))
+             (:include ansi-stream
+                       (misc #'fill-pointer-misc))
+             (:constructor nil)
+             (:copier nil)
+             (:predicate nil))
+  ;; a vector with a fill pointer where we stuff the stuff we write
+  (vector (missing-arg) :type vector-with-fill-pointer :read-only t))
 
-(declaim (freeze-type fill-pointer-output-stream))
+(defstruct (string-fill-pointer-output-stream
+             (:include fill-pointer-output-stream
+                       (cout #'string-fill-pointer-ouch)
+                       (sout #'string-fill-pointer-sout)
+                       (vector (missing-arg) :type string-with-fill-pointer :read-only t))
+             (:constructor nil)
+             (:copier nil)
+             (:predicate nil)))
+(declaim (freeze-type string-fill-pointer-output-stream))
+
 ;;; TODO: specialize on string type?
-(defun %init-fill-pointer-output-stream (stream string element-type)
+(defun %init-string-fill-pointer-output-stream (stream string element-type)
   (declare (optimize speed (sb-c::verify-arg-count 0)))
   (declare (ignore element-type))
   (unless (and (stringp string)
@@ -2126,20 +2135,20 @@ benefit of the function GET-OUTPUT-STREAM-STRING."
   (macrolet ((initforms ()
                `(progn ,@(mapcar (lambda (dsd)
                                    `(%instance-set stream ,(dsd-index dsd)
-                                       ,(case (dsd-name dsd)
-                                          (string 'string)
-                                          (t (dsd-default dsd)))))
-                                (dd-slots
-                                 (find-defstruct-description 'fill-pointer-output-stream))))))
+                                      ,(case (dsd-name dsd)
+                                         (vector 'string)
+                                         (t (dsd-default dsd)))))
+                                 (dd-slots
+                                  (find-defstruct-description 'string-fill-pointer-output-stream))))))
     (initforms)
-    (truly-the fill-pointer-output-stream stream)))
+    (truly-the string-fill-pointer-output-stream stream)))
 
-(defun fill-pointer-ouch (stream character)
+(defun string-fill-pointer-ouch (stream character)
   ;; FIXME: ridiculously inefficient. Can we throw some TRULY-THEs in here?
   ;; I think the prohibition against touching the string - implying that you can't
   ;; decide to re-displace it - means we should be able to just look at the
   ;; underlying vector, at least until we run out of space in it.
-  (let* ((buffer (fill-pointer-output-stream-string stream))
+  (let* ((buffer (string-fill-pointer-output-stream-vector stream))
          (current (fill-pointer buffer))
          (current+1 (1+ current)))
     (declare (fixnum current))
@@ -2164,10 +2173,10 @@ benefit of the function GET-OUTPUT-STREAM-STRING."
           (setf (char workspace offset-current) character)))))
   character)
 
-(defun fill-pointer-sout (stream string start end)
+(defun string-fill-pointer-sout (stream string start end)
   (declare (fixnum start end))
   (string-dispatch (simple-character-string simple-base-string) string
-    (let* ((buffer (fill-pointer-output-stream-string stream))
+    (let* ((buffer (string-fill-pointer-output-stream-vector stream))
            (current (fill-pointer buffer))
            (string-len (- end start))
            (dst-end (+ string-len current)))
@@ -2197,7 +2206,7 @@ benefit of the function GET-OUTPUT-STREAM-STRING."
       dst-end)))
 
 (defun fill-pointer-misc (stream operation arg1
-                          &aux (buffer (fill-pointer-output-stream-string stream)))
+                          &aux (buffer (fill-pointer-output-stream-vector stream)))
   (stream-misc-case (operation :default nil)
     (:set-file-position
      (setf (fill-pointer buffer)
@@ -2226,7 +2235,7 @@ benefit of the function GET-OUTPUT-STREAM-STRING."
                (1- (- end found))
                current)))))
     (:element-type
-     (array-element-type (fill-pointer-output-stream-string stream)))
+     (array-element-type (fill-pointer-output-stream-vector stream)))
     (:element-mode 'character)))
 
 ;;;; case frobbing streams, used by FORMAT ~(...~)
@@ -2817,8 +2826,8 @@ benefit of the function GET-OUTPUT-STREAM-STRING."
          (values :input (string-input-stream-string underlying-stream)))
         (string-output-stream
          (values :output nil))
-        (fill-pointer-output-stream
-         (values :output (fill-pointer-output-stream-string underlying-stream))))
+        (string-fill-pointer-output-stream
+         (values :output (string-fill-pointer-output-stream-vector underlying-stream))))
     (%make-stub-stream direction string)))
 
 (defmethod print-object ((stub stub-stream) stream)
