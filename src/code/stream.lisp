@@ -2083,8 +2083,6 @@ benefit of the function GET-OUTPUT-STREAM-STRING."
 ;;; the CLM, but they are required for the implementation of
 ;;; WITH-OUTPUT-TO-STRING.
 
-;;; FIXME: need to support (VECTOR NIL), ideally without destroying all hope
-;;; of efficiency.
 (declaim (inline vector-with-fill-pointer-p))
 (defun vector-with-fill-pointer-p (x)
   (and (vectorp x)
@@ -2100,7 +2098,7 @@ benefit of the function GET-OUTPUT-STREAM-STRING."
 ;;; are implicitly adjustable is an implementation detail that should not be leaked.
 ;;; For comparison, when evaluating:
 ;;; (let ((s (make-array 5 :fill-pointer 0 :element-type 'base-char)))
-;;;       (with-output-to-string (stream s) (dotimes (i 6) (write-char #\a stream))) s)
+;;;   (with-output-to-string (stream s) (dotimes (i 6) (write-char #\a stream))) s)
 ;;; CLISP:
 ;;; *** - VECTOR-PUSH-EXTEND works only on adjustable arrays, not on "aaaaa"
 ;;; CCL:
@@ -2202,36 +2200,33 @@ benefit of the function GET-OUTPUT-STREAM-STRING."
                           &aux (buffer (fill-pointer-output-stream-string stream)))
   (stream-misc-case (operation :default nil)
     (:set-file-position
-           (setf (fill-pointer buffer)
-                 (case arg1
-                   (:start 0)
-                   ;; Fill-pointer is always at fill-pointer we will
-                   ;; make :END move to the end of the actual string.
-                   (:end (array-total-size buffer))
-                   ;; We allow moving beyond the end of string if the
-                   ;; string is adjustable.
-                   (t (when (>= arg1 (array-total-size buffer))
-                        (if (adjustable-array-p buffer)
-                            (adjust-array buffer arg1)
-                            (error "Cannot move FILE-POSITION beyond the end ~
-                                    of WITH-OUTPUT-TO-STRING stream ~
-                                    constructed with non-adjustable string.")))
-                      arg1))))
-    (:get-file-position
-           (fill-pointer buffer))
+     (setf (fill-pointer buffer)
+           (case arg1
+             (:start 0)
+             ;; Fill-pointer is always at fill-pointer we will
+             ;; make :END move to the end of the actual string.
+             (:end (array-total-size buffer))
+             ;; We allow moving beyond the end of string if the
+             ;; string is adjustable.
+             (t (when (>= arg1 (array-total-size buffer))
+                  (if (adjustable-array-p buffer)
+                      (adjust-array buffer arg1)
+                      (error "Cannot move FILE-POSITION beyond the end ~
+                              of WITH-OUTPUT-TO-STRING stream ~
+                              constructed with non-adjustable string.")))
+                arg1))))
+    (:get-file-position (fill-pointer buffer))
     (:charpos
      (let ((current (fill-pointer buffer)))
        (with-array-data ((string buffer) (start) (end current))
          (declare (simple-string string))
          (let ((found (position #\newline string :test #'char=
-                                                 :start start :end end
-                                                 :from-end t)))
+                                :start start :end end :from-end t)))
            (if found
                (1- (- end found))
                current)))))
     (:element-type
-      (array-element-type
-       (fill-pointer-output-stream-string stream)))
+     (array-element-type (fill-pointer-output-stream-string stream)))
     (:element-mode 'character)))
 
 ;;;; case frobbing streams, used by FORMAT ~(...~)
