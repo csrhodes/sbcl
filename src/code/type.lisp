@@ -2716,17 +2716,15 @@ expansion happened."
                                                    (vector nil nil)))
         #-sb-xc-host (specifier-type 'number)))
 
-(defun upgraded-complex-part-ctype (typespec &optional context)
+(defun upgraded-complex-part-ctype (typespec context operator)
   (let ((ctype (specifier-type typespec context)))
     (cond
-      ((eq ctype *empty-type*)
-       *empty-type*)
       ;; this is the two types NIL and (EQL 0)
       ((csubtypep ctype (sb-kernel:specifier-type '(eql 0)))
        ctype)
       ((not (csubtypep ctype (specifier-type 'real)))
-       (error "The component type for COMPLEX is not a subtype of REAL: ~S"
-              ctype))
+       (error "The component type for ~S is not a subtype of REAL: ~S"
+              operator typespec))
       ((csubtypep ctype (specifier-type 'rational))
        (specifier-type 'rational))
       ((csubtypep ctype (specifier-type 'single-float))
@@ -2748,7 +2746,7 @@ expansion happened."
                                                    (numeric-type-class component-type)
                                                    (numeric-type-format component-type))
                             (numeric-union-type-ranges component-type))))
-        (let ((ctype (upgraded-complex-part-ctype typespec context)))
+        (let ((ctype (upgraded-complex-part-ctype typespec context 'complex)))
           ;; this is the two types NIL and (EQL 0)
           (if (csubtypep ctype (sb-kernel:specifier-type '(eql 0)))
               *empty-type*

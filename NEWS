@@ -3,7 +3,8 @@
 changes relative to sbcl-2.5.0:
   * minor incompatible change: SBCL now reveals details of its COMPLEX
     representations through UPGRADED-COMPLEX-PART-TYPE, rather than hiding
-    them.
+    them; UPGRADED-COMPLEX-PART-TYPE will now signal an error if there is no
+    such upgraded type.
 
 changes in sbcl-2.5.0 relative to sbcl-2.4.11:
   * platform support:

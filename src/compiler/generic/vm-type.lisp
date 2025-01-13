@@ -139,7 +139,12 @@
    can hold parts of type SPEC."
   (declare (type lexenv-designator environment) (ignore environment))
   (declare (explicit-check))
-  (type-specifier (upgraded-complex-part-ctype spec)))
+  (dx-let ((context (make-type-context spec)))
+    (let ((ctype (upgraded-complex-part-ctype spec context 'upgraded-complex-part-type)))
+      (etypecase ctype
+        (union-type (error "The component type for ~S does not have an upgraded part: ~S."
+                           'upgraded-complex-part-type spec))
+        (t (type-specifier ctype))))))
 
 ;;; Return the most specific integer type that can be quickly checked that
 ;;; includes the given type.
