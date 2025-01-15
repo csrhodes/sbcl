@@ -2095,7 +2095,7 @@ or they must be declared locally notinline at each call site.~@:>"
                                              ,var))))
                               (dd-slots dd) lambda-list))))))
     (destructuring-bind (llks &optional req opt rest keys aux) args
-      (collect ((vars (copy-list req))  ; list of bound vars
+      (collect ((vars (copy-list req))  ; list of values from the lambda list
                 (aux-vars)
                 (skipped-vars))
         (dolist (binding aux)
@@ -2139,13 +2139,7 @@ or they must be declared locally notinline at each call site.~@:>"
                      ;; Probably not because other symbols could reference them.
                      (setq opt (rewrite opt () parse-optional-arg-spec pretty))
                      (setq keys (rewrite keys (key) parse-key-arg-spec pretty))
-                     (sb-c::make-lambda-list
-                      llks nil req opt rest keys
-                      ;; &AUX vars which do not initialize a slot are not mentioned
-                      ;; in the lambda list, though it's not clear what to do if
-                      ;; subsequent bindings refer to the deleted ones.
-                      ;; And worse, what if it's SETQd - is that even legal?
-                      (remove-if (lambda (x) (not (typep x '(cons t cons)))) aux)))
+                     (sb-c::make-lambda-list llks nil req opt rest keys aux))
                    (walk-ll (opt rest keys aux-vars)
                      (walk opt () parse-optional-arg-spec)
                      (when rest (vars (car rest)))
@@ -2153,23 +2147,29 @@ or they must be declared locally notinline at each call site.~@:>"
                      (dolist (arg aux-vars)
                        (vars arg))))
             (walk-ll opt rest keys (aux-vars))
-            `(,(make-ll opt rest keys (aux-vars))
-              (declare (explicit-check)
-                       (sb-c::lambda-list ,(make-ll opt rest keys (aux-vars) t)))
-              ,(funcall
-                creator dd
-                (mapcar
-                 (lambda (slot &aux (name (dsd-name slot)))
-                   (if (find name (skipped-vars) :test #'string=)
-                       ;; CLHS 3.4.6 Boa Lambda Lists
-                       '.do-not-initialize-slot.
-                       (let* ((type (dsd-type slot))
-                              (found (member (dsd-name slot) (vars) :test #'string=))
-                              (initform (if found (car found) (dsd-default slot))))
-                         ;; We can ignore the DD-ELEMENT-TYPE
-                         ;; because the container itself will check.
-                         (if (eq type t) initform `(the ,type ,initform)))))
-                 (dd-slots dd))))))))))
+            (let ((vals (mapcar #'copy-symbol (vars))))
+              `((&rest args)
+                (declare (explicit-check)
+                         (sb-c::lambda-list ,(make-ll opt rest keys (aux-vars) t)))
+                (multiple-value-bind (,@vals)
+                    (apply (lambda ,(make-ll opt rest keys (aux-vars))
+                             (values ,@(vars)))
+                           args)
+                  (declare (ignorable ,@vals))
+                  ,(funcall
+                    creator dd
+                    (mapcar
+                     (lambda (slot &aux (name (dsd-name slot)))
+                       (if (find name (skipped-vars) :test #'string=)
+                           ;; CLHS 3.4.6 Boa Lambda Lists
+                           '.do-not-initialize-slot.
+                           (let* ((type (dsd-type slot))
+                                  (found (member (dsd-name slot) vals :test #'string=))
+                                  (initform (if found (car found) (dsd-default slot))))
+                             ;; We can ignore the DD-ELEMENT-TYPE
+                             ;; because the container itself will check.
+                             (if (eq type t) initform `(the ,type ,initform)))))
+                     (dd-slots dd))))))))))))
 
 ;;;; instances with ALTERNATE-METACLASS
 ;;;;
