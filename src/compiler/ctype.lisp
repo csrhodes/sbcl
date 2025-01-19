@@ -854,7 +854,8 @@ and no value was provided for it." name)))))))))))
     (return-from assert-definition-type t))
   (let ((*lossage-detected* nil))
     (multiple-value-bind (vars types)
-        (if (fun-type-wild-args type)
+        (if (or (fun-type-wild-args type)
+                (eql (getf (functional-plist functional) 'explicit-check) t))
             (values nil nil)
             (etypecase functional
               (optional-dispatch
