@@ -149,7 +149,7 @@
                              "~S is not a defined structure type."
                              (car body)))
       (let ((default-constructor
-             (dd-default-constructor
+             (dd-sharp-s-constructor
               (sb-kernel::layout-%info (classoid-layout classoid)))))
         (unless default-constructor
           (simple-reader-error
@@ -247,66 +247,69 @@
 
 ;;;; reading circular data: the #= and ## readmacros
 
-(defconstant +sharp-equal-marker+ '+sharp-equal-marker+)
-
-(defstruct (sharp-equal-wrapper
-            (:constructor make-sharp-equal-wrapper (label))
-            (:copier nil))
-  (label nil :read-only t)
-  (value +sharp-equal-marker+))
-(declaim (freeze-type sharp-equal-wrapper))
-
 ;; This function is kind of like NSUBLIS, but checks for circularities and
 ;; substitutes in arrays and structures as well as lists.
 (defun circle-subst (tree)
   (declare (inline alloc-xset))
-  (dx-let ((circle-table (alloc-xset)))
-    (named-let recurse ((tree tree))
-      (when (and (sharp-equal-wrapper-p tree)
-                 (neq (sharp-equal-wrapper-value tree) +sharp-equal-marker+))
-        (return-from recurse (sharp-equal-wrapper-value tree)))
-      ;; pick off types that never need to be sought in or added to the xset.
-      ;; (there are others, but these are common and quick to check)
-      (when (or (unbound-marker-p tree) (typep tree '(or number symbol)))
-        (return-from recurse tree))
-      (unless (xset-member-p tree circle-table)
-        (add-to-xset tree circle-table)
-        (macrolet ((process (place)
-                     `(let* ((old ,place)
-                             (new (recurse old)))
-                        (unless (eq old new)
-                          ,(if (eq (car place) '%instance-ref)
-                               `(%instance-set ,@(cdr place) new)
-                               `(setf ,place new))))))
-          (typecase tree
-            (cons
-             (process (car tree))
-             (process (cdr tree)))
-            ((array t)
-             (with-array-data ((data tree) (start) (end))
-               (declare (fixnum start end))
-               (do ((i start (1+ i)))
-                   ((>= i end))
-                 (process (aref data i)))))
-            (instance
-             ;; Don't refer to the DD-SLOTS unless there is reason to,
-             ;; that is, unless some slot might be raw.
-             (if (sb-kernel::bitmap-all-taggedp (%instance-layout tree))
-                 (do ((len (%instance-length tree))
-                      (i sb-vm:instance-data-start (1+ i)))
-                     ((>= i len))
-                   (process (%instance-ref tree i)))
-                 (let ((dd (layout-dd (%instance-layout tree))))
-                   (dolist (dsd (dd-slots dd))
-                     (when (eq (dsd-raw-type dsd) t)
-                       (process (%instance-ref tree (dsd-index dsd))))))))
-            ;; ASSUMPTION: all funcallable instances have at least 1 slot
-            ;; accessible via FUNCALLABLE-INSTANCE-INFO.
-            ;; The only such objects with reader syntax are CLOS objects,
-            ;; and those have exactly 1 slot in the primitive object.
-            (funcallable-instance
-             (process (%funcallable-instance-info tree 0))))))
-      tree)))
+  (dx-let ((circle-table (alloc-xset))
+           (typechecks nil))
+    (prog1
+        (named-let recurse ((tree tree))
+          (when (and (sharp-equal-wrapper-p tree)
+                     (neq (sharp-equal-wrapper-value tree) +sharp-equal-marker+))
+            (return-from recurse (sharp-equal-wrapper-value tree)))
+          ;; pick off types that never need to be sought in or added to the xset.
+          ;; (there are others, but these are common and quick to check)
+          (when (or (unbound-marker-p tree) (typep tree '(or number symbol)))
+            (return-from recurse tree))
+          (unless (xset-member-p tree circle-table)
+            (add-to-xset tree circle-table)
+            (macrolet ((process (place &optional (type nil typecheckp))
+                         `(let* ((old ,place)
+                                 (new (recurse old)))
+                            (unless (eq old new)
+                              ,@(when typecheckp
+                                  `((let ((type ,type))
+                                      (unless (eq type t)
+                                        (push
+                                         (lambda ()
+                                           (unless (typep new type)
+                                             (sb-c::%type-check-error new type nil)))
+                                         typechecks)))))
+                              ,(if (eq (car place) '%instance-ref)
+                                   `(%instance-set ,@(cdr place) new)
+                                   `(setf ,place new))))))
+              (typecase tree
+                (cons
+                 (process (car tree))
+                 (process (cdr tree)))
+                ((array t)
+                 (with-array-data ((data tree) (start) (end))
+                   (declare (fixnum start end))
+                   (do ((i start (1+ i)))
+                       ((>= i end))
+                     (process (aref data i)))))
+                (instance
+                 (let* ((layout (%instance-layout tree))
+                        (dd (layout-info layout)))
+                   (cond ((typep dd 'defstruct-description)
+                          (dolist (dsd (dd-slots dd))
+                            (when (eq (dsd-raw-type dsd) t)
+                              (process (%instance-ref tree (dsd-index dsd)) (dsd-type dsd)))))
+                         (t
+                          (aver (sb-kernel::bitmap-all-taggedp layout))
+                          (do ((len (%instance-length tree))
+                               (i sb-vm:instance-data-start (1+ i)))
+                              ((>= i len))
+                            (process (%instance-ref tree i)))))))
+                ;; ASSUMPTION: all funcallable instances have at least 1 slot
+                ;; accessible via FUNCALLABLE-INSTANCE-INFO.
+                ;; The only such objects with reader syntax are CLOS objects,
+                ;; and those have exactly 1 slot in the primitive object.
+                (funcallable-instance
+                 (process (%funcallable-instance-info tree 0))))))
+          tree)
+      (mapcar #'funcall typechecks))))
 
 ;;; Sharp-equal works as follows.
 ;;; When creating a new label a SHARP-EQUAL-WRAPPER is pushed onto

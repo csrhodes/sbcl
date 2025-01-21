@@ -2181,6 +2181,7 @@ is a good idea, but see SB-SYS re. blurring of boundaries.")
            "LAYOUT-DD"
            "%SET-INSTANCE-LAYOUT"
            "DD-CONSTRUCTORS" "DD-DEFAULT-CONSTRUCTOR"
+           "DD-SHARP-S-CONSTRUCTOR" "SHARP-S-CONSTRUCTOR"
            "LAYOUT-OF"
            "%REALPART"
            "STRUCTURE-CLASSOID" "STRUCTURE-CLASSOID-P"

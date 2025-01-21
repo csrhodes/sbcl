@@ -146,7 +146,7 @@
                  (let ((dd (layout-%info layout)))
                    (setf (dd-constructors dd)
                          (delete-if (lambda (x)
-                                      (and (consp x) (uninternable-p (car x))))
+                                      (and (consp x) (uninternable-p (fun-name-block-name (car x)))))
                                     (dd-constructors dd))))))
              (classoid-subclasses (find-classoid t)))
 

@@ -803,10 +803,14 @@ unless :NAMED is also specified.")))
                       (when (or (keyword-ctors) (boa-ctors))
                         (error "(:CONSTRUCTOR NIL) combined with other :CONSTRUCTORs"))
                       nil)
-                    (append (or (keyword-ctors)
-                                (unless (boa-ctors)
-                                  `((,(symbolicate "MAKE-" name) . :default))))
-                            (boa-ctors))))))
+                    (if (null (keyword-ctors))
+                        (or (boa-ctors)
+                            (let ((mname (symbolicate "MAKE-" name)))
+                              (list `((sharp-s-constructor ,mname) . :sharp-s)
+                                    `(,mname . :default))))
+                        (let ((kname (caar (keyword-ctors))))
+                          (list* `((sharp-s-constructor ,kname) . :sharp-s)
+                                 (append (keyword-ctors) (boa-ctors)))))))))
 
       ;; POSITION is constant-foldable, but folding happens _after_ transforming to
       ;; a CASE expression which is surprising. CASE could invoke either POINTERP
@@ -1977,7 +1981,7 @@ or they must be declared locally notinline at each call site.~@:>"
                  ((eq elt-type t) slot-type)
                  (t `(and ,elt-type ,slot-type)))))
     `(function
-      ,(if (eq args :default)
+      ,(if (or (eq args :default) (eq args :sharp-s))
            `(&key ,@(mapcar (lambda (dsd)
                               `(,(keywordicate (dsd-name dsd))
                                 ,(elt-type-intersect dsd)))
@@ -2036,7 +2040,7 @@ or they must be declared locally notinline at each call site.~@:>"
         (specifier-type
          (case snippet
           (:constructor
-           (let ((ctor (assq name (dd-constructors dd))))
+           (let ((ctor (assoc name (dd-constructors dd) :test 'equal)))
              (aver ctor)
              (%struct-ctor-ftype dd (cdr ctor) (dd-element-type dd))))
           (:predicate `(function (t) (values boolean &optional)))
@@ -2080,7 +2084,7 @@ or they must be declared locally notinline at each call site.~@:>"
                          `((,keyword ,temp)
                            ,(default-value dsd pretty))))
                      (dd-slots dd))))
-    (when (eq args :default)
+    (when (or (eq args :default) (eq args :sharp-s))
       (let ((lambda-list (parse)))
         (return-from structure-ctor-lambda-parts
           `((&key ,@lambda-list)
@@ -2089,12 +2093,19 @@ or they must be declared locally notinline at each call site.~@:>"
             ,(funcall creator dd
                       (mapcar (lambda (dsd arg)
                                 (let ((type (dsd-type dsd))
+                                      (raw-type (dsd-raw-type dsd))
                                       (var (cadar arg)))
                                   (if (eq type t)
                                       var
-                                      `(the* (,type :context
-                                              (struct-context ,(dd-name dd) . ,(dsd-name dsd)))
-                                             ,var))))
+                                      (if (and (eq raw-type t) (eq args :sharp-s))
+                                          `(if (typep ,var 'sb-impl::sharp-equal-wrapper)
+                                               ,var
+                                               (the* (,type :context
+                                                      (struct-context ,(dd-name dd) . ,(dsd-name dsd)))
+                                                      ,var))
+                                          `(the* (,type :context
+                                                  (struct-context ,(dd-name dd) . ,(dsd-name dsd)))
+                                                 ,var)))))
                               (dd-slots dd) lambda-list))))))
     (destructuring-bind (llks &optional req opt rest keys aux) args
       (collect ((vars (copy-list req))  ; list of bound vars
@@ -2343,8 +2354,13 @@ or they must be declared locally notinline at each call site.~@:>"
          info)))
 
 (defun dd-default-constructor (dd)
-  (let ((ctor (first (dd-constructors dd))))
+  (let ((ctor (second (dd-constructors dd))))
     (when (typep ctor '(cons t (eql :default)))
+      (car ctor))))
+
+(defun dd-sharp-s-constructor (dd)
+  (let ((ctor (first (dd-constructors dd))))
+    (when (typep ctor '(cons t (eql :sharp-s)))
       (car ctor))))
 
 ;;; It is possible to produce instances of structure-object which violate

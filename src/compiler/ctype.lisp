@@ -156,7 +156,7 @@
         ;; ftype is not sufficient to ensure that slots get valid defaults.
         (when (typep xform '(cons defstruct-description (eql :constructor)))
           (let ((dd (car xform)))
-            (awhen (assq it (dd-constructors dd))
+            (awhen (assoc it (dd-constructors dd) :test 'equal)
               (check-structure-constructor-call call dd (cdr it)))))))
     (cond (*lossage-detected* (values nil t unknown-keys))
           (*unwinnage-detected* (values nil nil unknown-keys))

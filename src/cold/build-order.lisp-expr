@@ -306,6 +306,7 @@
  ("src/code/hash-table" :c-headers)
  ("src/code/readtable")
  ("src/code/host-pprint")
+ ("src/code/host-sharpm")
 
  ("src/compiler/knownfun")
  ("src/compiler/ctype")

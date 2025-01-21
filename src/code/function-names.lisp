@@ -65,7 +65,9 @@ use as a BLOCK name in the function in question."
   ;; 'cas.lisp' doesn't need to know this technique for sharing the parser,
   ;; so the name syntax is defined here instead of there.
   (%define-fun-name-syntax 'setf #'%check-setf-fun-name)
-  (%define-fun-name-syntax 'cas #'%check-setf-fun-name))
+  (%define-fun-name-syntax 'cas #'%check-setf-fun-name)
+  ;; temporary definition
+  (%define-fun-name-syntax 'sharp-s-constructor (constantly t)))
 
 #+sb-xc-host
 (!function-names-init)
