@@ -350,4 +350,52 @@
          (read-from-string "#1=#S(FOO :A #.(MAKE-INSTANCE 'junk))"))
     (sb-int:unencapsulate 'sb-int:add-to-xset 'wrap)))
 
+(defstruct node
+  (next nil :type (or null node))
+  (listnext nil :type (or null (cons node)))
+  (conscons nil :type (or null (cons node cons)))
+  (label -1 :type number))
+
+(assert (equalp (read-from-string "#S(NODE :NEXT NIL)")
+                (make-node :next nil)))
+(assert (equalp (read-from-string "#S(NODE :NEXT #S(NODE :NEXT NIL))")
+                (make-node :next (make-node :next nil))))
+(assert-error (read-from-string "#S(NODE :NEXT 1)"))
+(assert-error (read-from-string "#S(NODE :NEXT (1))"))
+(assert-error (read-from-string "#S(NODE :NEXT (#S(NODE :NEXT NIL)))"))
+(assert-error (read-from-string "#S(NODE :NEXT #(#S(NODE :NEXT NIL)))"))
+(assert-error (read-from-string "#S(NODE :NEXT #S(NODE :NEXT 1))"))
+
+(let ((circ (read-from-string "#1=#S(NODE :NEXT #1#)")))
+  (assert (eql (node-next circ) circ)))
+(assert-error (read-from-string "#1=#S(NODE :NEXT (#1#))"))
+(assert-error (read-from-string "#1=#S(NODE :NEXT #(#1#))"))
+
+(assert (equalp (read-from-string "#S(NODE :LISTNEXT NIL)")
+                (make-node :listnext nil)))
+(assert (equalp (read-from-string "#S(NODE :LISTNEXT (#S(NODE :LISTNEXT NIL)))")
+                (make-node :listnext (list (make-node :listnext nil)))))
+(assert-error (read-from-string "#S(NODE :LISTNEXT 1)"))
+(assert-error (read-from-string "#S(NODE :LISTNEXT (1))"))
+(assert-error (read-from-string "#S(NODE :LISTNEXT #S(NODE :LISTNEXT NIL))"))
+(assert-error (read-from-string "#S(NODE :LISTNEXT #(#S(NODE :LISTNEXT NIL)))"))
+(assert-error (read-from-string "#S(NODE :LISTNEXT (#S(NODE :LISTNEXT 1)))"))
+
+(let ((circ (read-from-string "#1=#S(NODE :LISTNEXT (#1#))")))
+  (assert (eql (car (node-listnext circ)) circ)))
+(assert-error (read-from-string "#1=#S(NODE :LISTNEXT #1#)"))
+(assert-error (read-from-string "#1=#S(NODE :LISTNEXT #(#1#))"))
+
+(assert (equalp (read-from-string "#S(NODE :CONSCONS (#S(NODE) . (3 . 4)))")
+                (make-node :conscons (cons (make-node) (cons 3 4)))))
+(assert-error (read-from-string "#S(NODE :CONSCONS 1)"))
+(assert-error (read-from-string "#S(NODE :CONSCONS (1))"))
+
+(let* ((circ (car (read-from-string "#1=(#S(NODE :CONSCONS #1#) . #1#)")))
+       (conscons (node-conscons circ)))
+  (assert (eql (car conscons) circ))
+  (assert (eql (cadr conscons) circ)))
+
+
+
 ;;; success
