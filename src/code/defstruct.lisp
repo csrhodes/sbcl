@@ -2093,7 +2093,8 @@ or they must be declared locally notinline at each call site.~@:>"
                                   (if (eq type t)
                                       var
                                       `(the* (,type :context
-                                              (struct-context ,(dd-name dd) . ,(dsd-name dsd)))
+                                              (struct-context ,(dd-name dd) . ,(dsd-name dsd))
+                                              :restart t)
                                              ,var))))
                               (dd-slots dd) lambda-list))))))
     (destructuring-bind (llks &optional req opt rest keys aux) args
