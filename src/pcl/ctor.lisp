@@ -415,7 +415,7 @@
                        (collect ((initargs))
                          (doplist (key value) initargs
                            (initargs key)
-                           (initargs (if (constantp value)
+                           (initargs (if (and (constantp value) (not safe-code-p))
                                          value
                                          (pop ctor-parameters))))
                          (apply #'make-instance class-name (initargs))))
@@ -532,7 +532,7 @@
                 collect (constant-form-value key) into keys
                 collect (constant-form-value key) into initargs
                 ;; Initarg value
-                if (constantp value)
+                if (and (constantp value) (not safe-code-p))
                 collect (maybe-expand-constant value) into keys
                 and collect value into initargs
                 else
@@ -812,6 +812,9 @@
                                  '(debug 0))
                             '#.*optimize-speed*
                             :test #'equal))
+          ,@(when (ctor-safe-p ctor)
+              '((declare (optimize sb-c::preserve-single-use-debug-variables
+                                   sb-c::compute-debug-fun))))
           (block nil
             (when (layout-invalid ,wrapper)
               (install-initial-constructor ,ctor t)
@@ -1007,11 +1010,12 @@
                  (setf (aref slot-vector location)
                        (list kind val type slotd))))
              (default-init-var-name (i) (pcl-symbolicate ".D" i "."))
-             (location-var-name (i) (pcl-symbolicate ".L" i ".")))
+             (location-var-name (i) (pcl-symbolicate ".L" i "."))
+             (initform-var-name (i) (pcl-symbolicate ".I" i ".")))
       ;; Loop over supplied initargs and values and record which
       ;; instance and class slots they initialize.
       (loop for (key value) on initargs by #'cddr
-            as kind = (if (constantp value) 'constant 'param)
+            as kind = (if (and (constantp value) (not safe-p)) 'constant 'param)
             as locations = (initarg-locations key)
             do (loop for (location type slotd) in locations
                      do (if (consp location)
@@ -1025,7 +1029,7 @@
       ;; if not actually used for initializing a slot.
       (loop for (key initform initfn) in default-initargs and i from 0
             unless (member key initkeys :test #'eq)
-            do (let* ((kind (if (constantp initform) 'constant 'var))
+            do (let* ((kind (if (and (constantp initform) (not safe-p)) 'constant 'var))
                       (init (if (eq kind 'var) initfn initform)))
                  (ecase kind
                    (constant
@@ -1044,7 +1048,7 @@
                            (instance-init location kind init type slotd)))))
       ;; Loop over all slots of the class, filling in the rest from
       ;; slot initforms.
-      (loop for slotd in (class-slots class)
+      (loop for slotd in (class-slots class) and i from 0
             as location = (slot-definition-location slotd)
             as type = (slot-definition-type slotd)
             as allocation = (slot-definition-allocation slotd)
@@ -1053,10 +1057,11 @@
               (unless (or (eq allocation :class)
                           (null initfn)
                           (initializedp location))
-                (if (constantp initform)
+                (if (and (constantp initform) (not safe-p))
                     (instance-init location 'initform initform type slotd)
-                    (instance-init location
-                                   'initform/initfn initfn type slotd))))
+                    (progn
+                      (push (cons (initform-var-name i) initfn) default-inits)
+                      (instance-init location 'initform/initfn (initform-var-name i) type slotd)))))
       ;; Generate the forms for initializing instance and class slots.
       (let ((instance-init-forms
              (loop for slot-entry across slot-vector and i from 0
@@ -1087,8 +1092,8 @@
                           (initform/initfn
                            (if early-unbound-markers-p
                                `(when ,(not-boundp-form)
-                                  ,(setf-form `(funcall ,value)))
-                               (setf-form `(funcall ,value))))
+                                  ,(setf-form value))
+                               (setf-form value)))
                           (initform
                            (if early-unbound-markers-p
                                `(when ,(not-boundp-form)
