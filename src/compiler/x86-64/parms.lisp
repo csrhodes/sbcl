@@ -74,7 +74,7 @@
 (defconstant-eqx float-sticky-bits       (byte 6  0) #'equalp)
 (defconstant-eqx float-traps-byte        (byte 6  7) #'equalp)
 (defconstant-eqx float-exceptions-byte   (byte 6  0) #'equalp)
-(defconstant float-fast-bit 0) ; no fast mode on x86-64
+(defconstant float-fast-bit (ash 1 15)) ; FTZ, but runtime code couples to DAZ also.
 
 ;;;; description of the target address space
 

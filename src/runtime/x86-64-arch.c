@@ -619,8 +619,9 @@ arch_set_fp_modes(unsigned int mxcsr)
 
     asm ("fldenv %0" : : "m" (f_env));
 
-    /* now, simply, load up the mxcsr register */
-    temp = mxcsr;
+    /* now load up the mxcsr register, coupling FTZ and DAZ. */
+    temp = mxcsr & ~0x40;
+    temp |= (mxcsr & 0x8000) >> 9; /* if FTZ, also DAZ for "fast mode". */
     asm ("ldmxcsr %0" : : "m" (temp));
 }
 
