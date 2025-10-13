@@ -1813,7 +1813,8 @@ bootstrapping.
         ;;; compiler-macros or tranforms.
         (values (if (sb-c:policy env (= sb-c:store-coverage-data 0))
                     walked-lambda
-                    method-lambda)
+                    ;; TODO work out what breaks (if anything)
+                    walked-lambda)
                 call-next-method-p
                 (not (null parameters-setqd))
                 parameters-setqd)))))
