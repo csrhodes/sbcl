@@ -310,22 +310,48 @@ http://www.math.sci.hiroshima-u.ac.jp/~m-mat/MT/emt.html
 (defun %random-single-float (arg state)
   (declare (type (single-float (0f0)) arg)
            (type random-state state))
-  (loop for candidate of-type single-float
-        = (* arg
-             (- (make-single-float
-                 (dpb (ash (random-chunk state)
-                           (- sb-vm:single-float-digits n-random-chunk-bits))
-                      sb-vm:single-float-significand-byte
-                      (single-float-bits 1.0)))
-                1.0))
-        while (#+x86 eql ;; Can't use = due to 80-bit precision
-               #-x86 =
-               candidate arg)
-        finally (return (truly-the (single-float 0.0) candidate))))
+  (let ((bits (random-chunk state))
+        (current 0))
+    (declare (type (unsigned-byte 32) bits))
+    (declare (type (integer 0 32) current))
+    (labels ((coin ()
+               (when (= current 32)
+                 (setf bits (random-chunk state)
+                       current 0))
+               (prog1
+                   (logbitp current bits)
+                 (incf current)))
+             (mantissa ()
+               (when (> current 8)
+                 (setf bits (random-chunk state)
+                       ;; by doing this when current > 8 (rather than
+                       ;; the correct 9) we can guarantee not needing
+                       ;; another chunk for the final coin check,
+                       ;; which can take the bit at position 8.
+                       current 0))
+               (return-from mantissa (ldb (byte 23 9) bits)))
+             (finish (exp)
+               (let ((mantissa (mantissa)))
+                 (when (and (= mantissa 0) (coin))
+                   (incf exp))
+                 (single-from-bits 0 exp mantissa))))
+      (loop for candidate of-type single-float
+            = (* arg
+                 (do* ((exphi 127)
+                       (explo 0)
+                       (exp (1- exphi) (1- exp)))
+                      ((= exp explo) (finish explo))
+                   (declare (type (integer 0 127) exp))
+                   (when (coin)
+                     (return (finish exp)))))
+            while (#+x86 eql ;; Can't use = due to 80-bit precision
+                         #-x86 =
+                         candidate arg)
+            finally (return (truly-the (single-float 0.0) candidate))))))
+
 (declaim (ftype (function ((double-float (0d0)) random-state)
                           (double-float 0d0))
                 %random-double-float))
-
 (defun %random-double-float (arg state)
   (declare (type (double-float (0d0)) arg)
            (type random-state state))
