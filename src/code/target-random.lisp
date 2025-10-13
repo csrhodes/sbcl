@@ -339,14 +339,24 @@ http://www.math.sci.hiroshima-u.ac.jp/~m-mat/MT/emt.html
             = (* arg
                  (do* ((exphi 127)
                        (explo 0)
-                       (exp (1- exphi) (1- exp)))
-                      ((= exp explo) (finish explo))
-                   (declare (type (integer 0 127) exp))
-                   (when (coin)
-                     (return (finish exp)))))
+                       (exp (1- exphi)))
+                     (nil)
+                   (declare (type (integer -31 126) exp))
+                   (cond
+                     ((= bits 0)
+                      (setf bits (random-chunk state)
+                            exp (- exp 32))
+                      (when (<= exp explo)
+                        (return (finish explo))))
+                     (t (let ((bsf (first-bit-set bits)))
+                          (setf exp (- exp bsf)
+                                current (1+ bsf)))
+                        (let ((expfinal (max explo exp)))
+                          (return (finish expfinal)))))))
             while (#+x86 eql ;; Can't use = due to 80-bit precision
                          #-x86 =
                          candidate arg)
+            do (setf bits (random-chunk state) current 0)
             finally (return (truly-the (single-float 0.0) candidate))))))
 
 (declaim (ftype (function ((double-float (0d0)) random-state)
