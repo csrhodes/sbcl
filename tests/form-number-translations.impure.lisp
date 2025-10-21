@@ -44,10 +44,24 @@
         (push tr unfound-translations)))
     unfound-translations))
 
+;;; The shortest source-paths for each form number should identify a
+;;; translated form.
+(defun find-untranslated-paths (translations source-paths)
+  (let ((untranslated-paths nil))
+    (let ((copy (copy-list source-paths)))
+      (setf copy (sort copy #'> :key #'length))
+      (setf copy (stable-sort copy #'< :key #'car))
+      (setf copy (remove-duplicates copy :key #'car))
+      (dolist (path copy untranslated-paths)
+        (unless (find path translations :test #'equal)
+          (push path untranslated-paths))))))
+
 (defun check-consistency (form)
   (let ((translations (translations form))
         (source-paths (source-paths form)))
-    (assert (null (find-unfound-translations translations source-paths)))))
+    (assert (null (find-unfound-translations translations source-paths)))
+    (assert (= (length translations) (1+ (reduce #'max source-paths :key #'car))))
+    (assert (null (find-untranslated-paths translations source-paths)))))
 
 (with-test (:name (:static macrolet :check-consistency))
   (check-consistency '(macrolet ((def (x y) `(defun ,x (1+ ,y)))) (def ffloor) (def fceiling))))
